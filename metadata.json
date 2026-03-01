@@ -1,0 +1,5 @@
+{
+  "name": "Task Tracking System",
+  "description": "ระบบติดตามงานสำหรับหัวหน้าแผนก เชื่อมต่อ Google Sheets พร้อม Dashboard สรุปภาพรวม 11 หน่วยงาน",
+  "requestFramePermissions": []
+}
