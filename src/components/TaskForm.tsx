@@ -16,7 +16,7 @@ interface TaskFormProps {
 }
 
 export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskFormProps) {
-  const [assignToAll, setAssignToAll] = useState(false);
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([UNITS[0]]);
   const [formData, setFormData] = useState<Partial<Task>>({
     name: "",
     unit: UNITS[0],
@@ -24,6 +24,7 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
     frequency: FREQUENCIES[0],
     plannedDate: format(new Date(), "yyyy-MM-dd"),
     actualDate: "",
+    detailedSteps: "",
     remarks: "",
     status: "รอดำเนินการ",
     delayDays: 0
@@ -32,7 +33,7 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
   useEffect(() => {
     if (editingTask) {
       setFormData(editingTask);
-      setAssignToAll(false);
+      setSelectedUnits([editingTask.unit]);
     } else {
       setFormData({
         name: "",
@@ -41,11 +42,12 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
         frequency: FREQUENCIES[0],
         plannedDate: format(new Date(), "yyyy-MM-dd"),
         actualDate: "",
+        detailedSteps: "",
         remarks: "",
         status: "รอดำเนินการ",
         delayDays: 0
       });
-      setAssignToAll(false);
+      setSelectedUnits([UNITS[0]]);
     }
   }, [editingTask, isOpen]);
 
@@ -80,9 +82,12 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (assignToAll && !editingTask) {
+    
+    const unitsToAssign = selectedUnits;
+    
+    if (!editingTask?.id && unitsToAssign.length > 1) {
       const groupId = `G-${Date.now()}`;
-      const tasks = UNITS.map(unit => ({
+      const tasks = unitsToAssign.map(unit => ({
         ...formData,
         id: `T-${unit}-${Date.now()}`,
         groupId,
@@ -91,8 +96,20 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
       }));
       onSave(tasks as any);
     } else {
-      onSave(formData);
+      // If only one unit selected or editing
+      onSave({
+        ...formData,
+        unit: editingTask?.id ? formData.unit : unitsToAssign[0]
+      });
     }
+  };
+
+  const toggleUnit = (unit: string) => {
+    setSelectedUnits(prev => 
+      prev.includes(unit) 
+        ? (prev.length > 1 ? prev.filter(u => u !== unit) : prev)
+        : [...prev, unit]
+    );
   };
 
   return (
@@ -111,8 +128,12 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
                   <FileText className="text-white w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900">{editingTask ? "แก้ไขรายการงาน" : "เพิ่มรายการงานใหม่"}</h3>
-                  <p className="text-sm text-slate-500">กรอกข้อมูลรายละเอียดงานเพื่อติดตามผล</p>
+                  <h3 className="text-xl font-bold text-slate-900">
+                    {editingTask?.id ? "แก้ไขรายการงาน" : editingTask ? "ส่งต่องาน / คัดลอก" : "เพิ่มรายการงานใหม่"}
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    {editingTask?.id ? "แก้ไขข้อมูลงานเดิม" : "สร้างงานใหม่จากข้อมูลเดิมเพื่อเริ่มขั้นตอนถัดไป"}
+                  </p>
                 </div>
               </div>
               <button 
@@ -124,33 +145,6 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
-              {!editingTask && (
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center">
-                      <Building2 className="text-white w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-emerald-900 text-sm">มอบหมายให้ทั้ง 11 หน่วยงาน</p>
-                      <p className="text-xs text-emerald-600">สร้างงานเดียวกันแยกตามหน่วยงานอัตโนมัติ</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAssignToAll(!assignToAll)}
-                    className={cn(
-                      "w-12 h-6 rounded-full transition-all relative",
-                      assignToAll ? "bg-emerald-600" : "bg-slate-200"
-                    )}
-                  >
-                    <div className={cn(
-                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                      assignToAll ? "left-7" : "left-1"
-                    )} />
-                  </button>
-                </div>
-              )}
-
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                   <FileText size={14} /> ชื่องาน
@@ -165,37 +159,52 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Building2 size={14} /> หน่วยงาน
-                  </label>
+              <div className="space-y-4">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Building2 size={14} /> หน่วยงานที่รับผิดชอบ
+                </label>
+                
+                {editingTask?.id ? (
                   <select 
-                    disabled={assignToAll && !editingTask}
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className={cn(
-                      "w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium appearance-none",
-                      assignToAll && !editingTask && "opacity-50 cursor-not-allowed"
-                    )}
+                    className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium appearance-none"
                   >
                     {UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                   </select>
-                </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-4 bg-slate-50 rounded-2xl border border-black/5 transition-all">
+                    {UNITS.map(unit => (
+                      <button
+                        key={unit}
+                        type="button"
+                        onClick={() => toggleUnit(unit)}
+                        className={cn(
+                          "px-3 py-2 rounded-xl text-xs font-bold transition-all border",
+                          selectedUnits.includes(unit) 
+                            ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10" 
+                            : "bg-white text-slate-500 border-black/5 hover:border-slate-300"
+                        )}
+                      >
+                        {unit}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <User size={14} /> ผู้รับผิดชอบ
-                  </label>
-                  <input 
-                    required
-                    type="text"
-                    value={formData.responsible}
-                    onChange={(e) => setFormData({ ...formData, responsible: e.target.value })}
-                    placeholder="ระบุชื่อ-นามสกุล"
-                    className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium"
-                  />
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <User size={14} /> ผู้รับผิดชอบ
+                </label>
+                <input 
+                  required
+                  type="text"
+                  value={formData.responsible}
+                  onChange={(e) => setFormData({ ...formData, responsible: e.target.value })}
+                  placeholder="ระบุชื่อ-นามสกุล (หากมีหลายคนให้คั่นด้วยเครื่องหมาย ,)"
+                  className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium"
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -226,41 +235,51 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
                 </div>
               </div>
 
-              {!assignToAll && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                      <CheckCircle2 size={14} /> ทำเสร็จจริง
-                    </label>
-                    <DatePicker
-                      selected={formData.actualDate ? parseISO(formData.actualDate) : null}
-                      onChange={(date) => handleDateChange("actualDate", date)}
-                      dateFormat="dd/MM/yyyy"
-                      locale={th}
-                      isClearable
-                      placeholderText="ยังไม่เสร็จ"
-                      className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium"
-                    />
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <CheckCircle2 size={14} /> ทำเสร็จจริง
+                  </label>
+                  <DatePicker
+                    selected={formData.actualDate ? parseISO(formData.actualDate) : null}
+                    onChange={(date) => handleDateChange("actualDate", date)}
+                    dateFormat="dd/MM/yyyy"
+                    locale={th}
+                    isClearable
+                    placeholderText="ยังไม่เสร็จ"
+                    className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium"
+                  />
+                </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                      <AlertCircle size={14} /> สถานะอัตโนมัติ
-                    </label>
-                    <div className="px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl flex items-center justify-between">
-                      <span className={cn(
-                        "font-bold",
-                        formData.status === "ล่าช้า" ? "text-red-500" : formData.status === "ก่อนเวลา" ? "text-emerald-500" : formData.status === "ตรงเวลา" ? "text-blue-500" : "text-slate-400"
-                      )}>
-                        {formData.status}
-                      </span>
-                      <span className="text-xs text-slate-400 font-mono">
-                        {formData.delayDays! > 0 ? `ช้า ${formData.delayDays} วัน` : formData.delayDays! < 0 ? `เร็ว ${Math.abs(formData.delayDays!)} วัน` : "ตรงเวลา"}
-                      </span>
-                    </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <AlertCircle size={14} /> สถานะอัตโนมัติ
+                  </label>
+                  <div className="px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl flex items-center justify-between">
+                    <span className={cn(
+                      "font-bold",
+                      formData.status === "ล่าช้า" ? "text-red-500" : formData.status === "ก่อนเวลา" ? "text-emerald-500" : formData.status === "ตรงเวลา" ? "text-blue-500" : "text-slate-400"
+                    )}>
+                      {formData.status}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {formData.delayDays! > 0 ? `ช้า ${formData.delayDays} วัน` : formData.delayDays! < 0 ? `เร็ว ${Math.abs(formData.delayDays!)} วัน` : "ตรงเวลา"}
+                    </span>
                   </div>
                 </div>
-              )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <FileText size={14} /> Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด
+                </label>
+                <textarea 
+                  value={formData.detailedSteps}
+                  onChange={(e) => setFormData({ ...formData, detailedSteps: e.target.value })}
+                  placeholder="ระบุว่าปัจจุบันงานดำเนินถึงขั้นตอนใด..."
+                  className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium min-h-[100px]"
+                />
+              </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -287,7 +306,7 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
                 onClick={handleSubmit}
                 className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20"
               >
-                {editingTask ? "บันทึกการแก้ไข" : assignToAll ? "มอบหมาย 11 หน่วย" : "บันทึกข้อมูล"}
+                {editingTask?.id ? "บันทึกการแก้ไข" : "ยืนยันการส่งต่อ / บันทึก"}
               </button>
             </div>
           </motion.div>

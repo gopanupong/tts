@@ -35,22 +35,46 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ tasks }: DashboardProps) {
-  const [selectedMonth, setSelectedMonth] = useState<Date | "all">("all");
+  const [selectedMonth, setSelectedMonth] = useState<number | "all">("all");
+  const [selectedYear, setSelectedYear] = useState<number | "all">("all");
 
-  // Generate last 12 months for the filter
-  const monthOptions = useMemo(() => {
-    const end = new Date();
-    const start = subMonths(end, 11);
-    return eachMonthOfInterval({ start, end }).reverse();
-  }, []);
+  const monthOptions = [
+    { value: 1, label: "มกราคม" },
+    { value: 2, label: "กุมภาพันธ์" },
+    { value: 3, label: "มีนาคม" },
+    { value: 4, label: "เมษายน" },
+    { value: 5, label: "พฤษภาคม" },
+    { value: 6, label: "มิถุนายน" },
+    { value: 7, label: "กรกฎาคม" },
+    { value: 8, label: "สิงหาคม" },
+    { value: 9, label: "กันยายน" },
+    { value: 10, label: "ตุลาคม" },
+    { value: 11, label: "พฤศจิกายน" },
+    { value: 12, label: "ธันวาคม" },
+  ];
+
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>();
+    tasks.forEach(t => {
+      if (t.plannedDate) {
+        const year = parseISO(t.plannedDate).getFullYear();
+        if (!isNaN(year)) years.add(year);
+      }
+    });
+    // Add current year if not present
+    years.add(new Date().getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [tasks]);
 
   const filteredTasks = useMemo(() => {
-    if (selectedMonth === "all") return tasks;
     return tasks.filter(t => {
-      const taskDate = parseISO(t.plannedDate);
-      return isSameMonth(taskDate, selectedMonth);
+      if (!t.plannedDate) return false;
+      const date = parseISO(t.plannedDate);
+      const monthMatch = selectedMonth === "all" || (date.getMonth() + 1) === selectedMonth;
+      const yearMatch = selectedYear === "all" || date.getFullYear() === selectedYear;
+      return monthMatch && yearMatch;
     });
-  }, [tasks, selectedMonth]);
+  }, [tasks, selectedMonth, selectedYear]);
 
   const stats = useMemo(() => {
     const total = filteredTasks.length;
@@ -85,8 +109,13 @@ export default function Dashboard({ tasks }: DashboardProps) {
       { name: "รอดำเนินการ", value: pending, color: "#f59e0b" }
     ].filter(d => d.value > 0);
 
-    // Monthly Trend (Always use all tasks for trend)
-    const trendData = monthOptions.slice().reverse().map(month => {
+    // Monthly Trend (Always use all tasks for trend, last 12 months)
+    const trendMonths = eachMonthOfInterval({ 
+      start: subMonths(new Date(), 11), 
+      end: new Date() 
+    });
+    
+    const trendData = trendMonths.map(month => {
       const mTasks = tasks.filter(t => isSameMonth(parseISO(t.plannedDate), month));
       return {
         name: format(month, "MMM yy", { locale: th }),
@@ -96,7 +125,7 @@ export default function Dashboard({ tasks }: DashboardProps) {
     });
 
     return { total, early, onTime, delayed, pending, unitData, statusData, freqData, trendData };
-  }, [filteredTasks, tasks, monthOptions]);
+  }, [filteredTasks, tasks]);
 
   return (
     <div className="space-y-6 pb-10">
@@ -107,36 +136,48 @@ export default function Dashboard({ tasks }: DashboardProps) {
           <p className="text-slate-500 text-sm">วิเคราะห์ประสิทธิภาพการดำเนินงานรายหน่วย</p>
         </div>
         
-        <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-black/5">
+        <div className="flex items-center gap-2 bg-purple-50 p-1.5 rounded-2xl border border-purple-100">
           <button
-            onClick={() => setSelectedMonth("all")}
+            onClick={() => { setSelectedMonth("all"); setSelectedYear("all"); }}
             className={cn(
               "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-              selectedMonth === "all" ? "bg-white text-slate-900 shadow-sm border border-black/5" : "text-slate-400 hover:text-slate-600"
+              (selectedMonth === "all" && selectedYear === "all") ? "bg-white text-purple-900 shadow-sm border border-purple-100" : "text-purple-400 hover:text-purple-600"
             )}
           >
             ทั้งหมด
           </button>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <select
-            value={selectedMonth === "all" ? "" : selectedMonth.toISOString()}
-            onChange={(e) => setSelectedMonth(e.target.value ? new Date(e.target.value) : "all")}
-            className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none px-2 cursor-pointer"
-          >
-            <option value="" disabled={selectedMonth !== "all"}>เลือกเดือน...</option>
-            {monthOptions.map(month => (
-              <option key={month.toISOString()} value={month.toISOString()}>
-                {format(month, "MMMM yyyy", { locale: th })}
-              </option>
-            ))}
-          </select>
+          <div className="w-px h-4 bg-purple-200 mx-1" />
+          
+          <div className="flex items-center gap-1">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value === "all" ? "all" : parseInt(e.target.value))}
+              className="bg-transparent text-sm font-bold text-purple-700 focus:outline-none px-2 cursor-pointer"
+            >
+              <option value="all">ทุกเดือน</option>
+              {monthOptions.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value === "all" ? "all" : parseInt(e.target.value))}
+              className="bg-transparent text-sm font-bold text-purple-700 focus:outline-none px-2 cursor-pointer"
+            >
+              <option value="all">ทุกปี</option>
+              {yearOptions.map(year => (
+                <option key={year} value={year}>{year + 543}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
-          { label: "งานทั้งหมด", value: stats.total, icon: TrendingUp, color: "slate", sub: "รายการ" },
+          { label: "งานทั้งหมด", value: stats.total, icon: TrendingUp, color: "purple", sub: "รายการ" },
           { label: "รอดำเนินการ", value: stats.pending, icon: Clock, color: "amber", sub: "ยังไม่เสร็จ" },
           { label: "ก่อนเวลา", value: stats.early, icon: CheckCircle2, color: "emerald", sub: "ประสิทธิภาพดี" },
           { label: "ตรงเวลา", value: stats.onTime, icon: Clock, color: "blue", sub: "ตามแผนงาน" },
@@ -152,7 +193,7 @@ export default function Dashboard({ tasks }: DashboardProps) {
             <div className="flex items-center justify-between mb-4">
               <div className={cn(
                 "w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110",
-                item.color === "slate" ? "bg-slate-50 text-slate-600" :
+                item.color === "purple" ? "bg-purple-50 text-purple-600" :
                 item.color === "amber" ? "bg-amber-50 text-amber-600" :
                 item.color === "emerald" ? "bg-emerald-50 text-emerald-600" :
                 item.color === "blue" ? "bg-blue-50 text-blue-600" :
@@ -165,7 +206,7 @@ export default function Dashboard({ tasks }: DashboardProps) {
             <div className="flex items-baseline gap-2">
               <div className={cn(
                 "text-3xl font-black",
-                item.color === "slate" ? "text-slate-900" :
+                item.color === "purple" ? "text-purple-900" :
                 item.color === "amber" ? "text-amber-600" :
                 item.color === "emerald" ? "text-emerald-600" :
                 item.color === "blue" ? "text-blue-600" :
@@ -179,36 +220,36 @@ export default function Dashboard({ tasks }: DashboardProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Monthly Trend Chart */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-black/5 shadow-sm">
+        <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-purple-100 shadow-sm">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center">
                 <BarChart3 size={20} />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900">แนวโน้มภาระงาน 12 เดือน</h3>
-                <p className="text-xs text-slate-400">เปรียบเทียบงานที่ได้รับมอบหมายและงานที่เสร็จสิ้น</p>
+                <h3 className="font-bold text-purple-900">แนวโน้มภาระงาน 12 เดือน</h3>
+                <p className="text-xs text-purple-400">เปรียบเทียบงานที่ได้รับมอบหมายและงานที่เสร็จสิ้น</p>
               </div>
             </div>
           </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={stats.trendData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3e8ff" />
                 <XAxis 
                   dataKey="name" 
                   axisLine={false} 
                   tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  tick={{ fill: '#a855f7', fontSize: 12 }}
                   dy={10}
                 />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#a855f7', fontSize: 12 }} />
                 <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
+                  cursor={{ fill: '#faf5ff' }}
                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                 />
-                <Bar dataKey="total" name="งานทั้งหมด" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={30} />
-                <Bar dataKey="completed" name="เสร็จสิ้น" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={30} />
+                <Bar dataKey="total" name="งานทั้งหมด" fill="#f3e8ff" radius={[4, 4, 0, 0]} barSize={30} />
+                <Bar dataKey="completed" name="เสร็จสิ้น" fill="#9333ea" radius={[4, 4, 0, 0]} barSize={30} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -222,7 +263,11 @@ export default function Dashboard({ tasks }: DashboardProps) {
             </div>
             <div>
               <h3 className="font-bold text-slate-900">สัดส่วนสถานะงาน</h3>
-              <p className="text-xs text-slate-400">{selectedMonth === "all" ? "ภาพรวมทั้งหมด" : format(selectedMonth, "MMMM yyyy", { locale: th })}</p>
+              <p className="text-xs text-slate-400">
+                {selectedMonth === "all" && selectedYear === "all" 
+                  ? "ภาพรวมทั้งหมด" 
+                  : `${selectedMonth !== "all" ? monthOptions.find(m => m.value === selectedMonth)?.label : "ทุกเดือน"} ${selectedYear !== "all" ? selectedYear + 543 : "ทุกปี"}`}
+              </p>
             </div>
           </div>
           <div className="h-[240px] w-full">

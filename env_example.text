@@ -1,8 +1,0 @@
-# Google OAuth Credentials
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=
-
-# App Configuration
-APP_URL=
-GEMINI_API_KEY=
