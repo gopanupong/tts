@@ -49,10 +49,25 @@ export default function App() {
     }
   };
 
-  const handleLogin = (employeeId: string) => {
+  const handleLogin = async (employeeId: string) => {
     setUser(employeeId);
     localStorage.setItem("employeeId", employeeId);
-    logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${employeeId}`);
+    await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${employeeId}`);
+    
+    // Check if Google is already connected
+    try {
+      const { data } = await axios.get("/api/google/status");
+      if (!data.connected) {
+        // If not connected, trigger connection popup
+        // This is safe because it's triggered by the user clicking "Confirm" in Login component
+        handleConnectGoogle();
+      } else {
+        setIsGoogleConnected(true);
+      }
+    } catch (err) {
+      console.error("Failed to check Google status during login");
+      handleConnectGoogle();
+    }
   };
 
   const handleLogout = () => {
@@ -65,17 +80,20 @@ export default function App() {
     try {
       const { data } = await axios.get("/api/google/status");
       setIsGoogleConnected(data.connected);
+      return data.connected;
     } catch (err) {
       console.error("Failed to check Google status");
+      return false;
     }
   };
 
   const handleConnectGoogle = async () => {
     try {
       const { data } = await axios.get("/api/auth/google/url");
+      console.log("Google Auth URL:", data.url);
       const authWindow = window.open(data.url, "google_auth", "width=600,height=700");
       if (!authWindow) {
-        alert("กรุณาอนุญาตให้เปิดหน้าต่าง Pop-up เพื่อเชื่อมต่อ Google");
+        alert("กรุณาอนุญาตให้เปิดหน้าต่าง Pop-up เพื่อเชื่อมต่อ Google (Browser ของคุณบล็อกหน้าต่างอัตโนมัติ)");
       }
     } catch (err: any) {
       const msg = err.response?.data?.error || "ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้";
@@ -121,9 +139,17 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchTasks();
-    checkGoogleStatus();
-  }, []);
+    if (user) {
+      fetchTasks();
+      checkGoogleStatus().then(connected => {
+        if (!connected) {
+          // Try to auto-connect if already logged in but not connected
+          // This might be blocked by popup blocker, but we'll try
+          handleConnectGoogle();
+        }
+      });
+    }
+  }, [user]);
 
   const handleAddTask = () => {
     setEditingTask(null);

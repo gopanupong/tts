@@ -15,13 +15,23 @@ const PORT = 3000;
 const getOAuth2Client = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  // Use GOOGLE_REDIRECT_URI if set, otherwise construct it from APP_URL
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 
-    (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, "")}/auth/google/callback` : null);
+  const appUrl = process.env.APP_URL;
+  const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("กรุณาตั้งค่า GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET ใน Environment Variables (และ GOOGLE_REDIRECT_URI หากไม่ได้ใช้ค่าเริ่มต้น)");
-  }
+  // Debug presence (not values)
+  console.log("OAuth Config Check:", {
+    hasClientId: !!clientId,
+    hasClientSecret: !!clientSecret,
+    hasAppUrl: !!appUrl,
+    hasRedirectUri: !!googleRedirectUri
+  });
+
+  const redirectUri = googleRedirectUri || 
+    (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
+
+  if (!clientId) throw new Error("ขาด GOOGLE_CLIENT_ID ใน Secrets");
+  if (!clientSecret) throw new Error("ขาด GOOGLE_CLIENT_SECRET ใน Secrets");
+  if (!redirectUri) throw new Error("ขาด GOOGLE_REDIRECT_URI และไม่พบ APP_URL อัตโนมัติ");
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 };
@@ -348,17 +358,32 @@ app.get("/auth/google/callback", async (req, res) => {
     googleTokens = tokens;
     
     res.send(`
+      <!DOCTYPE html>
       <html>
+        <head>
+          <title>Google Auth Success</title>
+          <style>
+            body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0fdf4; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; }
+            h1 { color: #166534; margin-bottom: 0.5rem; }
+            p { color: #15803d; }
+          </style>
+        </head>
         <body>
+          <div class="card">
+            <h1>เชื่อมต่อสำเร็จ!</h1>
+            <p>กำลังปิดหน้าต่างนี้และกลับไปยังแอปพลิเคชัน...</p>
+            <button onclick="closeWindow()" style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; background: #166534; color: white; border: none; border-radius: 0.5rem;">ปิดหน้าต่างนี้ทันที</button>
+          </div>
           <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
-              window.close();
-            } else {
-              window.location.href = '/';
+            function closeWindow() {
+              if (window.opener) {
+                window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
+                window.close();
+              }
             }
+            setTimeout(closeWindow, 2000);
           </script>
-          <p>เชื่อมต่อ Google Sheets สำเร็จ! กำลังปิดหน้าต่างนี้...</p>
         </body>
       </html>
     `);
