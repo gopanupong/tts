@@ -15,7 +15,7 @@ const PORT = 3000;
 const getOAuth2Client = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const appUrl = process.env.APP_URL;
+  const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
 
   // Debug presence (not values)
@@ -23,15 +23,16 @@ const getOAuth2Client = () => {
     hasClientId: !!clientId,
     hasClientSecret: !!clientSecret,
     hasAppUrl: !!appUrl,
-    hasRedirectUri: !!googleRedirectUri
+    hasRedirectUri: !!googleRedirectUri,
+    env: process.env.NODE_ENV
   });
 
   const redirectUri = googleRedirectUri || 
     (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
 
-  if (!clientId) throw new Error("ขาด GOOGLE_CLIENT_ID ใน Secrets");
-  if (!clientSecret) throw new Error("ขาด GOOGLE_CLIENT_SECRET ใน Secrets");
-  if (!redirectUri) throw new Error("ขาด GOOGLE_REDIRECT_URI และไม่พบ APP_URL อัตโนมัติ");
+  if (!clientId) throw new Error("ไม่พบ GOOGLE_CLIENT_ID ในระบบ (กรุณาเช็ค Environment Variables)");
+  if (!clientSecret) throw new Error("ไม่พบ GOOGLE_CLIENT_SECRET ในระบบ");
+  if (!redirectUri) throw new Error("ไม่พบ Redirect URI (กรุณาตั้งค่า APP_URL หรือ GOOGLE_REDIRECT_URI)");
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 };
