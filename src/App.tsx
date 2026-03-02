@@ -77,8 +77,10 @@ export default function App() {
       if (!authWindow) {
         alert("กรุณาอนุญาตให้เปิดหน้าต่าง Pop-up เพื่อเชื่อมต่อ Google");
       }
-    } catch (err) {
-      setError("ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้");
+    } catch (err: any) {
+      const msg = err.response?.data?.error || "ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้";
+      setError(msg);
+      console.error("Google Auth Error:", err);
     }
   };
 

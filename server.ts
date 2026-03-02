@@ -15,10 +15,12 @@ const PORT = 3000;
 const getOAuth2Client = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  // Use GOOGLE_REDIRECT_URI if set, otherwise construct it from APP_URL
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 
+    (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, "")}/auth/google/callback` : null);
 
   if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("กรุณาตั้งค่า GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET และ GOOGLE_REDIRECT_URI ใน Environment Variables");
+    throw new Error("กรุณาตั้งค่า GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET ใน Environment Variables (และ GOOGLE_REDIRECT_URI หากไม่ได้ใช้ค่าเริ่มต้น)");
   }
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
