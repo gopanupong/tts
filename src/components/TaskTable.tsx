@@ -19,6 +19,12 @@ import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from "date-f
 import { th } from "date-fns/locale";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface TaskTableProps {
   tasks: Task[];
@@ -315,7 +321,7 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
                               </span>
                               {tasks.find(t => t.id === task.sourceTaskId)?.actualDate && (
                                 <span className="text-[9px] text-slate-400 italic">
-                                  (ต้นฉบับเสร็จเมื่อ: {formatDate(tasks.find(t => t.id === task.sourceTaskId)!.actualDate)})
+                                  (ต้นฉบับเสร็จเมื่อ: {formatDate(tasks.find(t => t.id === task.sourceTaskId)?.actualDate || "")})
                                 </span>
                               )}
                             </div>
@@ -429,10 +435,3 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
     </div>
   );
 }
-
-function cn(...inputs: any[]) {
-  return twMerge(clsx(inputs));
-}
-
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";

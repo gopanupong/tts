@@ -27,8 +27,13 @@ import {
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval, eachMonthOfInterval, subMonths, isSameMonth } from "date-fns";
 import { th } from "date-fns/locale";
 import { Task, UNITS, FREQUENCIES } from "../types";
-import { cn } from "../lib/utils";
 import { motion, AnimatePresence } from "motion/react";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface DashboardProps {
   tasks: Task[];
@@ -116,7 +121,14 @@ export default function Dashboard({ tasks }: DashboardProps) {
     });
     
     const trendData = trendMonths.map(month => {
-      const mTasks = tasks.filter(t => isSameMonth(parseISO(t.plannedDate), month));
+      const mTasks = tasks.filter(t => {
+        if (!t.plannedDate) return false;
+        try {
+          return isSameMonth(parseISO(t.plannedDate), month);
+        } catch (e) {
+          return false;
+        }
+      });
       return {
         name: format(month, "MMM yy", { locale: th }),
         total: mTasks.length,

@@ -52,22 +52,7 @@ export default function App() {
   const handleLogin = async (employeeId: string) => {
     setUser(employeeId);
     localStorage.setItem("employeeId", employeeId);
-    await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${employeeId}`);
-    
-    // Check if Google is already connected
-    try {
-      const { data } = await axios.get("/api/google/status");
-      if (!data.connected) {
-        // If not connected, trigger connection popup
-        // This is safe because it's triggered by the user clicking "Confirm" in Login component
-        handleConnectGoogle();
-      } else {
-        setIsGoogleConnected(true);
-      }
-    } catch (err) {
-      console.error("Failed to check Google status during login");
-      handleConnectGoogle();
-    }
+    // Activity logging is handled in useEffect or after state update
   };
 
   const handleLogout = () => {
@@ -140,14 +125,15 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      fetchTasks();
-      checkGoogleStatus().then(connected => {
+      const initApp = async () => {
+        await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${user}`);
+        await fetchTasks();
+        const connected = await checkGoogleStatus();
         if (!connected) {
-          // Try to auto-connect if already logged in but not connected
-          // This might be blocked by popup blocker, but we'll try
           handleConnectGoogle();
         }
-      });
+      };
+      initApp();
     }
   }, [user]);
 
@@ -220,6 +206,25 @@ export default function App() {
 
   if (!user) {
     return <Login onLogin={handleLogin} />;
+  }
+
+  // If there's a fatal error that prevents rendering the main UI
+  if (error && tasks.length === 0 && !loading) {
+    return (
+      <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-red-100 text-center">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-red-900 mb-2">เกิดข้อผิดพลาดในการโหลดข้อมูล</h1>
+          <p className="text-red-600 text-sm mb-6">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 transition-all"
+          >
+            ลองใหม่อีกครั้ง
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
