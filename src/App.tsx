@@ -81,9 +81,18 @@ export default function App() {
         alert("กรุณาอนุญาตให้เปิดหน้าต่าง Pop-up เพื่อเชื่อมต่อ Google (Browser ของคุณบล็อกหน้าต่างอัตโนมัติ)");
       }
     } catch (err: any) {
-      const msg = err.response?.data?.error || "ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้";
-      setError(`Google Setup Error: ${msg}`);
       console.error("Google Auth Error:", err);
+      let msg = "ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้";
+      
+      if (err.response?.data?.error) {
+        msg = typeof err.response.data.error === 'string' 
+          ? err.response.data.error 
+          : JSON.stringify(err.response.data.error);
+      } else if (err.message) {
+        msg = err.message;
+      }
+
+      setError(`Google Setup Error: ${msg}`);
       
       if (msg.includes("GOOGLE_CLIENT_ID")) {
         alert("⚠️ ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID ในระบบ\n\nกรุณาไปที่ Vercel Dashboard > Settings > Environment Variables แล้วเพิ่ม GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET");
@@ -121,7 +130,9 @@ export default function App() {
       const { data } = await axios.get("/api/tasks");
       setTasks(data);
     } catch (err: any) {
-      setError("Failed to fetch tasks from database.");
+      const msg = err.response?.data?.error || err.message || "ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้";
+      setError(`Database Error: ${msg}`);
+      console.error("Fetch Tasks Error:", err);
     } finally {
       setLoading(false);
     }
@@ -213,7 +224,9 @@ export default function App() {
   }
 
   // If there's a fatal error that prevents rendering the main UI
-  if (error && tasks.length === 0 && !loading) {
+  const isFatalError = error && tasks.length === 0 && !loading && !error.includes("Google Setup Error");
+
+  if (isFatalError) {
     return (
       <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-red-100 text-center">

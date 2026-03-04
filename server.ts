@@ -371,8 +371,9 @@ app.get("/api/auth/google/url", (req, res) => {
 
     res.json({ url });
   } catch (error: any) {
-    console.error("Google Auth URL Error:", error.message);
-    res.status(400).json({ error: error.message });
+    const msg = error.message || String(error);
+    console.error("Google Auth URL Error:", msg);
+    res.status(400).json({ error: msg });
   }
 });
 
