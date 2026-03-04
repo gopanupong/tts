@@ -1,4 +1,6 @@
 export type TaskStatus = "ก่อนเวลา" | "ตรงเวลา" | "ล่าช้า" | "รอดำเนินการ";
+export type TaskType = "งาน routine" | "งานสำคัญที่ต้องทำทันที เร่งด่วน" | "งานสำคัญที่ต้องวางแผน ไม่เร่งด่วน" | "งานที่มอบหมาย ไม่เร่งด่วน";
+export type Priority = "1 สำคัญสุด" | "2 สำคัญ" | "3 ปกติ";
 
 export interface Task {
   id: string;
@@ -7,6 +9,8 @@ export interface Task {
   unit: string;
   responsible: string;
   frequency: string;
+  type: TaskType;
+  priority: Priority;
   plannedDate: string; // YYYY-MM-DD
   actualDate: string;  // YYYY-MM-DD or empty
   delayDays: number;
@@ -17,6 +21,19 @@ export interface Task {
   sourceTaskName?: string;
   createdAt: string;
 }
+
+export const TASK_TYPES: TaskType[] = [
+  "งาน routine",
+  "งานสำคัญที่ต้องทำทันที เร่งด่วน",
+  "งานสำคัญที่ต้องวางแผน ไม่เร่งด่วน",
+  "งานที่มอบหมาย ไม่เร่งด่วน"
+];
+
+export const PRIORITIES: Priority[] = [
+  "1 สำคัญสุด",
+  "2 สำคัญ",
+  "3 ปกติ"
+];
 
 export const UNITS = [
   "แผนก",

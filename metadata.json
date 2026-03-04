@@ -1,5 +1,5 @@
 {
-  "name": "Task Tracking System",
+  "name": "Task Tracking System (TTS)",
   "description": "ระบบติดตามงานสำหรับหัวหน้าแผนก เชื่อมต่อ Google Sheets พร้อม Dashboard สรุปภาพรวม 11 หน่วยงาน",
   "requestFramePermissions": []
 }

@@ -4,7 +4,7 @@ import { Clock, FileText, User, Building2, Calendar, CheckCircle2, AlertCircle, 
 import { cn } from "../lib/utils";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { Task, UNITS, FREQUENCIES, TaskStatus } from "../types";
+import { Task, UNITS, FREQUENCIES, TaskStatus, TASK_TYPES, PRIORITIES } from "../types";
 import { differenceInDays, format, isValid, parseISO } from "date-fns";
 import { th } from "date-fns/locale";
 
@@ -22,6 +22,8 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
     unit: UNITS[0],
     responsible: "",
     frequency: FREQUENCIES[0],
+    type: TASK_TYPES[0],
+    priority: PRIORITIES[2],
     plannedDate: format(new Date(), "yyyy-MM-dd"),
     actualDate: "",
     detailedSteps: "",
@@ -40,6 +42,8 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
         unit: UNITS[0],
         responsible: "",
         frequency: FREQUENCIES[0],
+        type: TASK_TYPES[0],
+        priority: PRIORITIES[2],
         plannedDate: format(new Date(), "yyyy-MM-dd"),
         actualDate: "",
         detailedSteps: "",
@@ -205,6 +209,34 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
                   placeholder="ระบุชื่อ-นามสกุล (หากมีหลายคนให้คั่นด้วยเครื่องหมาย ,)"
                   className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <FileText size={14} /> ประเภทงาน
+                  </label>
+                  <select 
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+                    className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium appearance-none"
+                  >
+                    {TASK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <AlertCircle size={14} /> ความสำคัญ (Priority)
+                  </label>
+                  <select 
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
+                    className="w-full px-5 py-4 bg-slate-50 border border-black/5 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all text-slate-700 font-medium appearance-none"
+                  >
+                    {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

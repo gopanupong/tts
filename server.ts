@@ -18,19 +18,20 @@ const getOAuth2Client = () => {
   const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
 
+  const redirectUri = googleRedirectUri || 
+    (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
+
   // Debug presence (not values)
   console.log("OAuth Config Check:", {
     hasClientId: !!clientId,
     hasClientSecret: !!clientSecret,
     hasAppUrl: !!appUrl,
     hasRedirectUri: !!googleRedirectUri,
-    env: process.env.NODE_ENV
+    env: process.env.NODE_ENV,
+    finalRedirectUri: redirectUri
   });
 
-  const redirectUri = googleRedirectUri || 
-    (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
-
-  if (!clientId) throw new Error("ไม่พบ GOOGLE_CLIENT_ID ในระบบ (กรุณาเช็ค Environment Variables)");
+  if (!clientId) throw new Error("ไม่พบ GOOGLE_CLIENT_ID ในระบบ (กรุณาตั้งค่าใน Environment Variables / Secrets)");
   if (!clientSecret) throw new Error("ไม่พบ GOOGLE_CLIENT_SECRET ในระบบ");
   if (!redirectUri) throw new Error("ไม่พบ Redirect URI (กรุณาตั้งค่า APP_URL หรือ GOOGLE_REDIRECT_URI)");
 
@@ -70,6 +71,8 @@ const initDb = async () => {
         unit TEXT,
         responsible TEXT,
         frequency TEXT,
+        type TEXT,
+        priority TEXT,
         plannedDate TEXT,
         actualDate TEXT,
         delayDays INTEGER,
@@ -100,6 +103,12 @@ const initDb = async () => {
     try {
       await db.query("ALTER TABLE tasks ADD COLUMN sourceTaskName TEXT");
     } catch (e) {}
+    try {
+      await db.query("ALTER TABLE tasks ADD COLUMN type TEXT");
+    } catch (e) {}
+    try {
+      await db.query("ALTER TABLE tasks ADD COLUMN priority TEXT");
+    } catch (e) {}
   } else {
     db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
@@ -109,6 +118,8 @@ const initDb = async () => {
         unit TEXT,
         responsible TEXT,
         frequency TEXT,
+        type TEXT,
+        priority TEXT,
         plannedDate TEXT,
         actualDate TEXT,
         delayDays INTEGER,
@@ -138,6 +149,12 @@ const initDb = async () => {
     } catch (e) {}
     try {
       db.exec("ALTER TABLE tasks ADD COLUMN sourceTaskName TEXT");
+    } catch (e) {}
+    try {
+      db.exec("ALTER TABLE tasks ADD COLUMN type TEXT");
+    } catch (e) {}
+    try {
+      db.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     } catch (e) {}
   }
 };
@@ -169,6 +186,8 @@ app.post("/api/tasks", async (req, res) => {
     unit: task.unit || "",
     responsible: task.responsible || "",
     frequency: task.frequency || "",
+    type: task.type || "งาน routine",
+    priority: task.priority || "3 ปกติ",
     plannedDate: task.plannedDate || "",
     actualDate: task.actualDate || "",
     delayDays: task.delayDays || 0,
@@ -183,14 +202,16 @@ app.post("/api/tasks", async (req, res) => {
   try {
     if (isPostgres) {
       const query = `
-        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         ON CONFLICT (id) DO UPDATE SET
           groupId = EXCLUDED.groupId,
           name = EXCLUDED.name,
           unit = EXCLUDED.unit,
           responsible = EXCLUDED.responsible,
           frequency = EXCLUDED.frequency,
+          type = EXCLUDED.type,
+          priority = EXCLUDED.priority,
           plannedDate = EXCLUDED.plannedDate,
           actualDate = EXCLUDED.actualDate,
           delayDays = EXCLUDED.delayDays,
@@ -204,8 +225,8 @@ app.post("/api/tasks", async (req, res) => {
       await db.query(query, Object.values(taskData));
     } else {
       const insert = db.prepare(`
-        INSERT OR REPLACE INTO tasks (id, groupId, name, unit, responsible, frequency, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
+        INSERT OR REPLACE INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
       `);
       insert.run(taskData);
     }
@@ -229,8 +250,8 @@ app.post("/api/tasks/batch", async (req, res) => {
       try {
         await client.query('BEGIN');
         const query = `
-          INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         `;
         for (const task of tasks) {
           const taskData = [
@@ -240,6 +261,8 @@ app.post("/api/tasks/batch", async (req, res) => {
             task.unit || "",
             task.responsible || "",
             task.frequency || "",
+            task.type || "งาน routine",
+            task.priority || "3 ปกติ",
             task.plannedDate || "",
             task.actualDate || "",
             task.delayDays || 0,
@@ -261,8 +284,8 @@ app.post("/api/tasks/batch", async (req, res) => {
       }
     } else {
       const insert = db.prepare(`
-        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
+        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
       `);
       const transaction = db.transaction((taskList) => {
         for (const task of taskList) {
@@ -274,6 +297,8 @@ app.post("/api/tasks/batch", async (req, res) => {
             unit: task.unit || "",
             responsible: task.responsible || "",
             frequency: task.frequency || "",
+            type: task.type || "งาน routine",
+            priority: task.priority || "3 ปกติ",
             plannedDate: task.plannedDate || "",
             actualDate: task.actualDate || "",
             delayDays: task.delayDays || 0,
@@ -352,7 +377,13 @@ app.get("/api/auth/google/url", (req, res) => {
 });
 
 app.get("/auth/google/callback", async (req, res) => {
-  const { code } = req.query;
+  const { code, error } = req.query;
+  
+  if (error) {
+    console.error("Google Auth Callback Error from Google:", error);
+    return res.status(400).send(`Authentication failed: ${error}`);
+  }
+
   try {
     const client = getOAuth2Client();
     const { tokens } = await client.getToken(code as string);
@@ -428,9 +459,9 @@ app.post("/api/google/sheets/sync", async (req, res) => {
 
     // Prepare data for Google Sheets Sheet1 (Tasks)
     const taskValues = [
-      ["ID", "Name", "Unit", "Responsible", "Frequency", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
+      ["ID", "Name", "Unit", "Responsible", "Frequency", "Type", "Priority", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
       ...tasks.map((t: any) => [
-        t.id, t.name, t.unit, t.responsible, t.frequency, t.plannedDate, t.actualDate, t.status, t.detailedSteps, t.remarks, t.sourceTaskId, t.sourceTaskName, t.createdAt
+        t.id, t.name, t.unit, t.responsible, t.frequency, t.type, t.priority, t.plannedDate, t.actualDate, t.status, t.detailedSteps, t.remarks, t.sourceTaskId, t.sourceTaskName, t.createdAt
       ])
     ];
 

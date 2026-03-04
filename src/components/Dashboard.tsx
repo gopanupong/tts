@@ -26,7 +26,7 @@ import {
 } from "recharts";
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval, eachMonthOfInterval, subMonths, isSameMonth } from "date-fns";
 import { th } from "date-fns/locale";
-import { Task, UNITS, FREQUENCIES } from "../types";
+import { Task, UNITS, FREQUENCIES, TASK_TYPES, PRIORITIES } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -106,6 +106,18 @@ export default function Dashboard({ tasks }: DashboardProps) {
       value: filteredTasks.filter(t => t.frequency === freq).length
     })).filter(d => d.value > 0);
 
+    // Task Type Breakdown
+    const typeData = TASK_TYPES.map(type => ({
+      name: type,
+      value: filteredTasks.filter(t => t.type === type).length
+    })).filter(d => d.value > 0);
+
+    // Priority Breakdown
+    const priorityData = PRIORITIES.map(priority => ({
+      name: priority,
+      value: filteredTasks.filter(t => t.priority === priority).length
+    })).filter(d => d.value > 0);
+
     // Status Pie Data
     const statusData = [
       { name: "ก่อนเวลา", value: early, color: "#10b981" },
@@ -136,7 +148,7 @@ export default function Dashboard({ tasks }: DashboardProps) {
       };
     });
 
-    return { total, early, onTime, delayed, pending, unitData, statusData, freqData, trendData };
+    return { total, early, onTime, delayed, pending, unitData, statusData, freqData, trendData, typeData, priorityData };
   }, [filteredTasks, tasks]);
 
   return (
@@ -388,6 +400,95 @@ export default function Dashboard({ tasks }: DashboardProps) {
                 <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
                   {stats.freqData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={['#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e'][index % 5]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Task Type Breakdown */}
+        <div className="bg-white p-8 rounded-[32px] border border-black/5 shadow-sm">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+              <PieChartIcon size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">แยกตามประเภทงาน</h3>
+              <p className="text-xs text-slate-400">สัดส่วนประเภทงานที่ได้รับมอบหมาย</p>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={stats.typeData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={8}
+                  dataKey="value"
+                >
+                  {stats.typeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e'][index % 4]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-6 space-y-3">
+            {stats.typeData.map((item, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e'][i % 4] }} />
+                  <span className="text-sm font-medium text-slate-600">{item.name}</span>
+                </div>
+                <span className="text-sm font-bold text-slate-900">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Priority Breakdown */}
+        <div className="bg-white p-8 rounded-[32px] border border-black/5 shadow-sm">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">แยกตามความสำคัญ (Priority)</h3>
+              <p className="text-xs text-slate-400">จำนวนงานตามระดับความสำคัญ</p>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.priorityData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+                />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                />
+                <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={40}>
+                  {stats.priorityData.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={
+                        entry.name.includes("1") ? "#ef4444" : 
+                        entry.name.includes("2") ? "#f59e0b" : 
+                        "#64748b"
+                      } 
+                    />
                   ))}
                 </Bar>
               </BarChart>

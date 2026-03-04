@@ -14,7 +14,7 @@ import {
   ArrowRightCircle,
   Link2
 } from "lucide-react";
-import { Task, UNITS, FREQUENCIES } from "../types";
+import { Task, UNITS, FREQUENCIES, TASK_TYPES, PRIORITIES } from "../types";
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { th } from "date-fns/locale";
 import DatePicker from "react-datepicker";
@@ -38,7 +38,9 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
   const [unitFilter, setUnitFilter] = useState("ทั้งหมด");
   const [statusFilter, setStatusFilter] = useState("ทั้งหมด");
   const [frequencyFilter, setFrequencyFilter] = useState("ทั้งหมด");
-  const [groupBy, setGroupBy] = useState<"none" | "unit" | "status">("none");
+  const [typeFilter, setTypeFilter] = useState("ทั้งหมด");
+  const [priorityFilter, setPriorityFilter] = useState("ทั้งหมด");
+  const [groupBy, setGroupBy] = useState<"none" | "unit" | "status" | "type" | "priority">("none");
   
   // Date Range Filters
   const [plannedStartDate, setPlannedStartDate] = useState<Date | null>(null);
@@ -55,6 +57,8 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
       const matchesUnit = unitFilter === "ทั้งหมด" || task.unit === unitFilter;
       const matchesStatus = statusFilter === "ทั้งหมด" || task.status === statusFilter;
       const matchesFrequency = frequencyFilter === "ทั้งหมด" || task.frequency === frequencyFilter;
+      const matchesType = typeFilter === "ทั้งหมด" || task.type === typeFilter;
+      const matchesPriority = priorityFilter === "ทั้งหมด" || task.priority === priorityFilter;
       
       // Date Range Filtering
       let matchesPlannedRange = true;
@@ -79,15 +83,20 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
         }
       }
 
-      return matchesSearch && matchesUnit && matchesStatus && matchesFrequency && matchesPlannedRange && matchesActualRange;
+      return matchesSearch && matchesUnit && matchesStatus && matchesFrequency && matchesType && matchesPriority && matchesPlannedRange && matchesActualRange;
     });
-  }, [tasks, searchTerm, unitFilter, statusFilter, frequencyFilter, plannedStartDate, plannedEndDate, actualStartDate, actualEndDate]);
+  }, [tasks, searchTerm, unitFilter, statusFilter, frequencyFilter, typeFilter, priorityFilter, plannedStartDate, plannedEndDate, actualStartDate, actualEndDate]);
 
   const groupedTasks: Record<string, Task[]> = useMemo(() => {
     if (groupBy === "none") return { "รายการทั้งหมด": filteredTasks };
     
     return filteredTasks.reduce((acc, task) => {
-      const key = groupBy === "unit" ? task.unit : task.status;
+      let key = "รายการทั้งหมด";
+      if (groupBy === "unit") key = task.unit;
+      else if (groupBy === "status") key = task.status;
+      else if (groupBy === "type") key = task.type;
+      else if (groupBy === "priority") key = task.priority;
+      
       if (!acc[key]) acc[key] = [];
       acc[key].push(task);
       return acc;
@@ -142,6 +151,8 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
                 <option value="none">ไม่จัดกลุ่ม</option>
                 <option value="unit">หน่วยงาน</option>
                 <option value="status">สถานะ</option>
+                <option value="type">ประเภทงาน</option>
+                <option value="priority">ความสำคัญ</option>
               </select>
             </div>
 
@@ -157,6 +168,30 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
               </select>
             </div>
             
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase px-1">ประเภทงาน</span>
+              <select 
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="bg-purple-50 border border-purple-100 rounded-2xl px-4 py-2 text-sm font-medium text-purple-900 focus:outline-none"
+              >
+                <option value="ทั้งหมด">ทุกประเภท</option>
+                {TASK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase px-1">ความสำคัญ</span>
+              <select 
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="bg-purple-50 border border-purple-100 rounded-2xl px-4 py-2 text-sm font-medium text-purple-900 focus:outline-none"
+              >
+                <option value="ทั้งหมด">ทุกระดับ</option>
+                {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase px-1">ความถี่</span>
               <select 
@@ -276,6 +311,7 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
           <thead>
             <tr className="bg-slate-50/50">
               <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">ชื่องาน / หน่วยงาน</th>
+              <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">ประเภท / ความสำคัญ</th>
               <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">ผู้รับผิดชอบ / ความถี่</th>
               <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">กำหนดเสร็จ</th>
               <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">ทำเสร็จจริง</th>
@@ -333,6 +369,27 @@ export default function TaskTable({ tasks, onEdit, onDelete, onHandover }: TaskT
                             <Building2 size={12} />
                             {task.unit}
                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col gap-1">
+                          <span className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full border w-fit",
+                            task.type === "งาน routine" ? "bg-slate-100 text-slate-600 border-slate-200" :
+                            task.type === "งานสำคัญที่ต้องทำทันที เร่งด่วน" ? "bg-red-100 text-red-600 border-red-200" :
+                            task.type === "งานสำคัญที่ต้องวางแผน ไม่เร่งด่วน" ? "bg-amber-100 text-amber-600 border-amber-200" :
+                            "bg-blue-100 text-blue-600 border-blue-200"
+                          )}>
+                            {task.type}
+                          </span>
+                          <span className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full border w-fit",
+                            task.priority === "1 สำคัญสุด" ? "bg-red-600 text-white border-red-700" :
+                            task.priority === "2 สำคัญ" ? "bg-amber-500 text-white border-amber-600" :
+                            "bg-slate-500 text-white border-slate-600"
+                          )}>
+                            {task.priority}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-5">

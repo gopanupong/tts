@@ -82,8 +82,12 @@ export default function App() {
       }
     } catch (err: any) {
       const msg = err.response?.data?.error || "ไม่สามารถดึง URL สำหรับเชื่อมต่อ Google ได้";
-      setError(msg);
+      setError(`Google Setup Error: ${msg}`);
       console.error("Google Auth Error:", err);
+      
+      if (msg.includes("GOOGLE_CLIENT_ID")) {
+        alert("⚠️ ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID ในระบบ\n\nกรุณาไปที่ Vercel Dashboard > Settings > Environment Variables แล้วเพิ่ม GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET");
+      }
     }
   };
 
