@@ -65,14 +65,14 @@ export default function App() {
     try {
       const { data } = await axios.get("/api/google/status");
       setIsGoogleConnected(data.connected);
-      return data.connected;
+      return { connected: data.connected, configured: data.configured };
     } catch (err) {
       console.error("Failed to check Google status");
-      return false;
+      return { connected: false, configured: false };
     }
   };
 
-  const handleConnectGoogle = async () => {
+  const handleConnectGoogle = async (isAuto = false) => {
     try {
       const { data } = await axios.get("/api/auth/google/url");
       console.log("Google Auth URL:", data.url);
@@ -92,10 +92,15 @@ export default function App() {
         msg = err.message;
       }
 
-      setError(`Google Setup Error: ${msg}`);
+      // Only set global error if not auto-connecting or if it's a real error
+      if (!isAuto) {
+        setError(`Google Setup Error: ${msg}`);
+      }
       
       if (msg.includes("GOOGLE_CLIENT_ID")) {
-        alert("⚠️ ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID ในระบบ\n\nกรุณาไปที่ Vercel Dashboard > Settings > Environment Variables แล้วเพิ่ม GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET");
+        if (!isAuto) {
+          alert("⚠️ ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID ในระบบ\n\nกรุณาไปที่ Vercel Dashboard > Settings > Environment Variables แล้วเพิ่ม GOOGLE_CLIENT_ID และ GOOGLE_CLIENT_SECRET");
+        }
       }
     }
   };
@@ -143,9 +148,9 @@ export default function App() {
       const initApp = async () => {
         await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${user}`);
         await fetchTasks();
-        const connected = await checkGoogleStatus();
-        if (!connected) {
-          handleConnectGoogle();
+        const { connected, configured } = await checkGoogleStatus();
+        if (!connected && configured) {
+          handleConnectGoogle(true);
         }
       };
       initApp();

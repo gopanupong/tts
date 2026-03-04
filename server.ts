@@ -12,7 +12,7 @@ const app = express();
 const PORT = 3000;
 
 // Google OAuth Setup Helper
-const getOAuth2Client = () => {
+const getGoogleConfig = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
@@ -31,11 +31,26 @@ const getOAuth2Client = () => {
     finalRedirectUri: redirectUri
   });
 
-  if (!clientId) throw new Error("ไม่พบ GOOGLE_CLIENT_ID ในระบบ (กรุณาตั้งค่าใน Environment Variables / Secrets)");
-  if (!clientSecret) throw new Error("ไม่พบ GOOGLE_CLIENT_SECRET ในระบบ");
-  if (!redirectUri) throw new Error("ไม่พบ Redirect URI (กรุณาตั้งค่า APP_URL หรือ GOOGLE_REDIRECT_URI)");
+  const hasConfig = !!clientId && !!clientSecret && !!redirectUri;
 
-  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return {
+    clientId,
+    clientSecret,
+    redirectUri,
+    hasConfig
+  };
+};
+
+const getOAuth2Client = () => {
+  const { clientId, clientSecret, redirectUri, hasConfig } = getGoogleConfig();
+
+  if (!hasConfig) {
+    if (!clientId) throw new Error("ไม่พบ GOOGLE_CLIENT_ID ในระบบ (กรุณาตั้งค่าใน Environment Variables / Secrets)");
+    if (!clientSecret) throw new Error("ไม่พบ GOOGLE_CLIENT_SECRET ในระบบ");
+    if (!redirectUri) throw new Error("ไม่พบ Redirect URI (กรุณาตั้งค่า APP_URL หรือ GOOGLE_REDIRECT_URI)");
+  }
+
+  return new google.auth.OAuth2(clientId!, clientSecret!, redirectUri!);
 };
 
 // In-memory token storage (for demo purposes)
@@ -427,7 +442,11 @@ app.get("/auth/google/callback", async (req, res) => {
 });
 
 app.get("/api/google/status", (req, res) => {
-  res.json({ connected: !!googleTokens });
+  const { hasConfig } = getGoogleConfig();
+  res.json({ 
+    connected: !!googleTokens,
+    configured: hasConfig
+  });
 });
 
 app.post("/api/google/sheets/sync", async (req, res) => {
