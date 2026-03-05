@@ -61,16 +61,24 @@ let db: any;
 let isPostgres = false;
 
 if (process.env.DATABASE_URL) {
-  const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
-  });
-  db = pool;
-  isPostgres = true;
-  console.log("Using PostgreSQL Database");
+  try {
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
+    });
+    db = pool;
+    isPostgres = true;
+    console.log("Using PostgreSQL Database");
+  } catch (err: any) {
+    console.error("PostgreSQL Connection Error:", err.message);
+  }
 } else {
-  db = new Database("tasks.db");
-  console.log("Using SQLite Database (Local fallback)");
+  try {
+    db = new Database("tasks.db");
+    console.log("Using SQLite Database (Local fallback)");
+  } catch (err: any) {
+    console.error("SQLite Initialization Error:", err.message);
+  }
 }
 
 app.use(express.json());

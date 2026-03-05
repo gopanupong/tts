@@ -135,9 +135,18 @@ export default function App() {
       const { data } = await axios.get("/api/tasks");
       setTasks(data);
     } catch (err: any) {
-      const msg = err.response?.data?.error || err.message || "ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้";
-      setError(`Database Error: ${msg}`);
       console.error("Fetch Tasks Error:", err);
+      let msg = "ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้";
+      
+      if (err.response?.data?.error) {
+        msg = typeof err.response.data.error === 'string' 
+          ? err.response.data.error 
+          : JSON.stringify(err.response.data.error);
+      } else if (err.message) {
+        msg = err.message;
+      }
+
+      setError(`Database Error: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -148,10 +157,7 @@ export default function App() {
       const initApp = async () => {
         await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${user}`);
         await fetchTasks();
-        const { connected, configured } = await checkGoogleStatus();
-        if (!connected && configured) {
-          handleConnectGoogle(true);
-        }
+        // Removed auto-connect Google as per user request
       };
       initApp();
     }
@@ -229,7 +235,7 @@ export default function App() {
   }
 
   // If there's a fatal error that prevents rendering the main UI
-  const isFatalError = error && tasks.length === 0 && !loading && !error.includes("Google Setup Error");
+  const isFatalError = error && tasks.length === 0 && !loading && !error.includes("Google Setup Error") && !error.includes("Database Error");
 
   if (isFatalError) {
     return (
@@ -303,14 +309,6 @@ export default function App() {
             <LogOut size={20} />
             <span>ออกจากระบบ</span>
           </button>
-
-          <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
-            <p className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-1">สถานะระบบ</p>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-xs font-medium text-purple-600">เชื่อมต่อฐานข้อมูลแล้ว</span>
-            </div>
-          </div>
         </div>
       </aside>
 
