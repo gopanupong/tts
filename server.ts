@@ -1,14 +1,22 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
 import path from "path";
-import pg from "pg";
+import pkg from "pg";
+const { Pool } = pkg;
 import { google } from "googleapis";
-
-dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Health check route
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    isVercel: !!process.env.VERCEL,
+    hasDb: !!db,
+    isPostgres,
+    env: process.env.NODE_ENV
+  });
+});
 
 // Database Setup
 let db: any;
@@ -18,7 +26,7 @@ let isPostgres = false;
 const startDb = async () => {
   if (process.env.DATABASE_URL) {
     try {
-      const pool = new pg.Pool({
+      const pool = new Pool({
         connectionString: process.env.DATABASE_URL,
         ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
       });
@@ -42,16 +50,27 @@ const startDb = async () => {
   }
 };
 
-// Export app for Vercel
-export default app;
+let initPromise: Promise<void> | null = null;
 
 // Call startDb and then initDb sequentially
 const initializeApp = async () => {
-  await startDb();
-  await initDb();
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    try {
+      await startDb();
+      await initDb();
+      console.log("Initialization complete");
+    } catch (err) {
+      console.error("Initialization failed:", err);
+      initPromise = null; // Allow retry
+      throw err;
+    }
+  })();
+  return initPromise;
 };
 
-initializeApp().catch(console.error);
+// Start initialization but don't block top-level
+initializeApp().catch(err => console.error("Top-level init failed:", err));
 
 // Google OAuth Setup Helper
 const getGoogleConfig = () => {
@@ -89,6 +108,16 @@ const getOAuth2Client = () => {
 let googleTokens: any = null;
 
 app.use(express.json());
+
+// Middleware to ensure DB is initialized for all API routes
+app.use("/api", async (req, res, next) => {
+  try {
+    await initializeApp();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Initialize Database Schema
 const initDb = async () => {
@@ -331,7 +360,11 @@ app.get("/api/tasks", async (req, res) => {
     }
     res.json(tasks);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error("API Error (/api/tasks):", error);
+    res.status(500).json({ 
+      error: error.message || "Unknown server error",
+      details: error.toString()
+    });
   }
 });
 
@@ -708,12 +741,17 @@ app.post("/api/google/sheets/sync", async (req, res) => {
 const __dirname = path.resolve();
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (err) {
+      console.error("Failed to load Vite:", err);
+    }
   } else {
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
@@ -721,13 +759,25 @@ async function startServer() {
     });
   }
 
-  // Only listen if not in a serverless environment (like Vercel)
   if (!process.env.VERCEL) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 }
+
+// Catch-all error handler for Express (Must be after all routes)
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("Unhandled Express Error:", err);
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: err.message,
+      details: err.toString(),
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
 
 startServer();
 
