@@ -33,6 +33,8 @@ export default function App() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [isGoogleConfigured, setIsGoogleConfigured] = useState(false);
+  const [isGooglePersisted, setIsGooglePersisted] = useState(true);
   const [user, setUser] = useState<string | null>(() => localStorage.getItem("employeeId"));
 
   const logActivity = async (action: string, details: string) => {
@@ -65,10 +67,12 @@ export default function App() {
     try {
       const { data } = await axios.get("/api/google/status");
       setIsGoogleConnected(data.connected);
-      return { connected: data.connected, configured: data.configured };
+      setIsGoogleConfigured(data.configured);
+      setIsGooglePersisted(data.persisted);
+      return { connected: data.connected, configured: data.configured, persisted: data.persisted };
     } catch (err) {
       console.error("Failed to check Google status");
-      return { connected: false, configured: false };
+      return { connected: false, configured: false, persisted: true };
     }
   };
 
@@ -160,13 +164,21 @@ export default function App() {
         
         // Auto-connect Google if configured but not connected
         const status = await checkGoogleStatus();
+        
         if (status.configured && !status.connected) {
-          try {
-            const { data } = await axios.get("/api/auth/google/url");
-            // Use window.location.href instead of window.open to avoid popup blockers
-            window.location.href = data.url;
-          } catch (err) {
-            console.error("Auto-connect failed:", err);
+          const lastTry = localStorage.getItem("last_google_connect_attempt");
+          const now = Date.now();
+          const fiveMinutes = 5 * 60 * 1000;
+
+          // Only auto-redirect if we haven't tried in the last 5 minutes
+          if (!lastTry || (now - parseInt(lastTry)) > fiveMinutes) {
+            try {
+              localStorage.setItem("last_google_connect_attempt", now.toString());
+              const { data } = await axios.get("/api/auth/google/url");
+              window.location.href = data.url;
+            } catch (err) {
+              console.error("Auto-connect failed:", err);
+            }
           }
         }
       };
@@ -336,6 +348,15 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
+            {isGoogleConfigured && !isGoogleConnected && (
+              <button 
+                onClick={() => handleConnectGoogle(false)}
+                className="bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                เชื่อมต่อ Google Sheets
+              </button>
+            )}
             {isGoogleConnected && (
               <button 
                 onClick={handleSyncToSheets}
@@ -369,6 +390,16 @@ export default function App() {
           <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600">
             <AlertCircle size={20} />
             <p className="text-sm font-medium">{error}</p>
+          </div>
+        )}
+
+        {!isGooglePersisted && isGoogleConnected && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-center gap-3 text-amber-600">
+            <AlertCircle size={20} />
+            <div className="text-sm font-medium">
+              <p className="font-bold">⚠️ คำเตือน: ระบบไม่ได้เชื่อมต่อฐานข้อมูล (PostgreSQL)</p>
+              <p>การเชื่อมต่อ Google Sheets จะหายไปเมื่อ Server รีสตาร์ท กรุณาตั้งค่า DATABASE_URL ใน Vercel เพื่อความคงทนของข้อมูล</p>
+            </div>
           </div>
         )}
 

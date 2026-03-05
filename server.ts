@@ -639,7 +639,7 @@ app.get("/api/auth/google/url", (req, res) => {
     const url = client.generateAuthUrl({
       access_type: "offline",
       scope: scopes,
-      prompt: "consent"
+      // Removed prompt: "consent" to avoid repeated consent screens
     });
 
     res.json({ url });
@@ -705,7 +705,8 @@ app.get("/api/google/status", (req, res) => {
   const { hasConfig } = getGoogleConfig();
   res.json({ 
     connected: !!googleTokens,
-    configured: hasConfig
+    configured: hasConfig,
+    persisted: !!db
   });
 });
 
