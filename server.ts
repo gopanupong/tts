@@ -42,6 +42,9 @@ const startDb = async () => {
   }
 };
 
+// Export app for Vercel
+export default app;
+
 // Call startDb and then initDb sequentially
 const initializeApp = async () => {
   await startDb();
@@ -56,7 +59,7 @@ const getGoogleConfig = () => {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
-  const sheetId = process.env.GOOGLE_SHEET_ID || "18sHlNTO8cVRCKJpXGFkWlaaAp8PFRgUZmbElX3osr_Y";
+  const sheetId = process.env.GOOGLE_SHEET_ID || "18sH1NT08cVRCKJpXGFkWlaaAp8PFRgUZmbElX3osr_Y";
 
   const redirectUri = googleRedirectUri || 
     (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
@@ -315,6 +318,7 @@ app.get("/api/tasks", async (req, res) => {
 
     // Fallback to local DB
     if (!db) {
+      console.log("No database connection, returning empty tasks");
       return res.json([]);
     }
 
