@@ -110,7 +110,12 @@ let googleTokens: any = null;
 
 // Helper to load tokens from DB
 const loadTokensFromDb = async () => {
-  if (!db) return;
+  if (!db) {
+    if (process.env.VERCEL) {
+      console.warn("WARNING: Running on Vercel without a DATABASE_URL. Google Sheets connection will not persist across requests.");
+    }
+    return;
+  }
   try {
     let result;
     if (isPostgres) {
@@ -277,9 +282,15 @@ const initDb = async () => {
 
 // Helper to sync to Google Sheets after any change
 const syncToSheetsInternal = async () => {
-  if (!googleTokens) return;
+  if (!googleTokens) {
+    console.log("Sync skipped: No Google tokens available");
+    return;
+  }
   const { sheetId } = getGoogleConfig();
-  if (!sheetId) return;
+  if (!sheetId) {
+    console.log("Sync skipped: No Sheet ID configured");
+    return;
+  }
 
   try {
     const client = getOAuth2Client();
@@ -299,10 +310,10 @@ const syncToSheetsInternal = async () => {
         tasks = db.prepare("SELECT * FROM tasks ORDER BY createdAt DESC").all();
         logs = db.prepare("SELECT * FROM activity_logs ORDER BY timestamp DESC").all();
       }
-    } else if (googleTokens) {
-      // If no DB, we already have the latest in Sheets or we just updated it
-      // For now, if no DB, we skip the "fetch from DB then write to Sheets" part
-      // and assume the caller handled the Sheets update or we'll fetch from Sheets next time
+    } else {
+      // If no DB, we can't do a full sync from DB to Sheets
+      // We rely on individual endpoints to update Sheets directly
+      console.log("Sync: No database, skipping full overwrite from DB");
       return;
     }
 
@@ -447,6 +458,7 @@ app.post("/api/tasks", async (req, res) => {
   };
 
   try {
+    let saved = false;
     if (db) {
       if (isPostgres) {
         const query = `
@@ -478,6 +490,7 @@ app.post("/api/tasks", async (req, res) => {
         `);
         insert.run(taskData);
       }
+      saved = true;
     }
 
     // If Google is connected, we can also write directly to Sheets for immediate update
@@ -487,10 +500,50 @@ app.post("/api/tasks", async (req, res) => {
       client.setCredentials(googleTokens);
       const sheets = google.sheets({ version: "v4", auth: client });
       
-      // Fetch all tasks and sync (simplest way to ensure order and headers)
-      await syncToSheetsInternal();
+      if (db) {
+        await syncToSheetsInternal();
+      } else {
+        // No DB mode: Update directly in Sheets
+        console.log("Saving directly to Sheets (No DB mode)");
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A2:O",
+        });
+        let rows = response.data.values || [];
+        const taskArray = [
+          taskData.id, taskData.name, taskData.unit, taskData.responsible, 
+          taskData.frequency, taskData.type, taskData.priority, 
+          taskData.plannedDate, taskData.actualDate, taskData.status, 
+          taskData.detailedSteps, taskData.remarks, taskData.sourceTaskId, 
+          taskData.sourceTaskName, taskData.createdAt
+        ];
+        
+        const existingIndex = rows.findIndex(r => r[0] === taskData.id);
+        if (existingIndex >= 0) {
+          rows[existingIndex] = taskArray;
+        } else {
+          rows.unshift(taskArray); // Add to top
+        }
+        
+        const values = [
+          ["ID", "Name", "Unit", "Responsible", "Frequency", "Type", "Priority", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
+          ...rows
+        ];
+        
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A1",
+          valueInputOption: "RAW",
+          requestBody: { values }
+        });
+      }
+      saved = true;
     }
     
+    if (!saved) {
+      throw new Error("No database or Google Sheets connection available to save task. Please set DATABASE_URL or connect Google Sheets.");
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Save Task Error:", error);
@@ -506,6 +559,7 @@ app.post("/api/tasks/batch", async (req, res) => {
 
   try {
     const now = new Date().toISOString();
+    let saved = false;
     if (db) {
       if (isPostgres) {
         const client = await db.connect();
@@ -575,9 +629,61 @@ app.post("/api/tasks/batch", async (req, res) => {
         });
         transaction(tasks);
       }
+      saved = true;
     }
     
-    syncToSheetsInternal();
+    if (googleTokens) {
+      if (db) {
+        await syncToSheetsInternal();
+      } else {
+        // No DB mode: Fetch, merge, and write back
+        console.log("Batch saving directly to Sheets (No DB mode)");
+        const { sheetId } = getGoogleConfig();
+        const client = getOAuth2Client();
+        client.setCredentials(googleTokens);
+        const sheets = google.sheets({ version: "v4", auth: client });
+
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A2:O",
+        });
+        let rows = response.data.values || [];
+        
+        for (const task of tasks) {
+          const taskArray = [
+            task.id, task.name || "", task.unit || "", task.responsible || "", 
+            task.frequency || "", task.type || "งาน routine", task.priority || "3 ปกติ", 
+            task.plannedDate || "", task.actualDate || "", task.status || "รอดำเนินการ", 
+            task.detailedSteps || "", task.remarks || "", task.sourceTaskId || null, 
+            task.sourceTaskName || null, task.createdAt || now
+          ];
+          const existingIndex = rows.findIndex(r => r[0] === task.id);
+          if (existingIndex >= 0) {
+            rows[existingIndex] = taskArray;
+          } else {
+            rows.unshift(taskArray);
+          }
+        }
+
+        const values = [
+          ["ID", "Name", "Unit", "Responsible", "Frequency", "Type", "Priority", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
+          ...rows
+        ];
+        
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A1",
+          valueInputOption: "RAW",
+          requestBody: { values }
+        });
+      }
+      saved = true;
+    }
+
+    if (!saved) {
+      throw new Error("No database or Google Sheets connection available to save tasks.");
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Batch Save Error:", error);
@@ -588,15 +694,55 @@ app.post("/api/tasks/batch", async (req, res) => {
 app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   try {
+    let deleted = false;
     if (db) {
       if (isPostgres) {
         await db.query("DELETE FROM tasks WHERE id = $1", [id]);
       } else {
         db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
       }
+      deleted = true;
     }
     
-    syncToSheetsInternal();
+    if (googleTokens) {
+      if (db) {
+        await syncToSheetsInternal();
+      } else {
+        // No DB mode: Fetch, filter, and write back
+        console.log("Deleting directly from Sheets (No DB mode)");
+        const { sheetId } = getGoogleConfig();
+        const client = getOAuth2Client();
+        client.setCredentials(googleTokens);
+        const sheets = google.sheets({ version: "v4", auth: client });
+
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A2:O",
+        });
+        let rows = response.data.values || [];
+        const filteredRows = rows.filter(r => r[0] !== id);
+        
+        if (rows.length !== filteredRows.length) {
+          const values = [
+            ["ID", "Name", "Unit", "Responsible", "Frequency", "Type", "Priority", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
+            ...filteredRows
+          ];
+          
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: "Sheet1!A1",
+            valueInputOption: "RAW",
+            requestBody: { values }
+          });
+        }
+      }
+      deleted = true;
+    }
+
+    if (!deleted) {
+      throw new Error("No database or Google Sheets connection available to delete task.");
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -606,6 +752,7 @@ app.delete("/api/tasks/:id", async (req, res) => {
 app.post("/api/logs", async (req, res) => {
   const { employeeId, action, details, timestamp } = req.body;
   try {
+    let logged = false;
     if (db) {
       if (isPostgres) {
         await db.query(
@@ -617,9 +764,49 @@ app.post("/api/logs", async (req, res) => {
           "INSERT INTO activity_logs (employeeId, action, details, timestamp) VALUES (?, ?, ?, ?)"
         ).run(employeeId, action, details, timestamp);
       }
+      logged = true;
     }
     
-    syncToSheetsInternal();
+    if (googleTokens) {
+      if (db) {
+        await syncToSheetsInternal();
+      } else {
+        // No DB mode: Append to Sheet2
+        console.log("Logging directly to Sheets (No DB mode)");
+        const { sheetId } = getGoogleConfig();
+        const client = getOAuth2Client();
+        client.setCredentials(googleTokens);
+        const sheets = google.sheets({ version: "v4", auth: client });
+
+        // Check if Sheet2 exists
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+        const sheet2 = spreadsheet.data.sheets?.find(s => s.properties?.title === "Sheet2");
+        if (!sheet2) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: sheetId,
+            requestBody: {
+              requests: [{ addSheet: { properties: { title: "Sheet2" } } }]
+            }
+          });
+          // Add headers
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: "Sheet2!A1",
+            valueInputOption: "RAW",
+            requestBody: { values: [["Timestamp", "Employee ID", "Action", "Details"]] }
+          });
+        }
+
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: sheetId,
+          range: "Sheet2!A1",
+          valueInputOption: "RAW",
+          requestBody: { values: [[timestamp, employeeId, action, details]] }
+        });
+      }
+      logged = true;
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Log Error:", error);
