@@ -17,27 +17,17 @@ const getGoogleConfig = () => {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
+  const sheetId = process.env.GOOGLE_SHEET_ID || "18sHlNTO8cVRCKJpXGFkWlaaAp8PFRgUZmbElX3osr_Y";
 
   const redirectUri = googleRedirectUri || 
     (appUrl ? `${appUrl.replace(/\/$/, "")}/auth/google/callback` : null);
-
-  // Debug presence (not values)
-  console.log("OAuth Config Check:", {
-    hasClientId: !!clientId,
-    hasClientSecret: !!clientSecret,
-    hasAppUrl: !!appUrl,
-    hasRedirectUri: !!googleRedirectUri,
-    env: process.env.NODE_ENV,
-    finalRedirectUri: redirectUri
-  });
-
-  const hasConfig = !!clientId && !!clientSecret && !!redirectUri;
 
   return {
     clientId,
     clientSecret,
     redirectUri,
-    hasConfig
+    sheetId,
+    hasConfig: !!clientId && !!clientSecret && !!redirectUri
   };
 };
 
@@ -72,19 +62,22 @@ if (process.env.DATABASE_URL) {
   } catch (err: any) {
     console.error("PostgreSQL Connection Error:", err.message);
   }
-} else {
+} else if (!process.env.VERCEL) {
   try {
     db = new Database("tasks.db");
     console.log("Using SQLite Database (Local fallback)");
   } catch (err: any) {
     console.error("SQLite Initialization Error:", err.message);
   }
+} else {
+  console.log("Running on Vercel without DATABASE_URL. Using Google Sheets as primary storage.");
 }
 
 app.use(express.json());
 
 // Initialize Database Schema
 const initDb = async () => {
+  if (!db) return;
   if (isPostgres) {
     await db.query(`
       CREATE TABLE IF NOT EXISTS tasks (
@@ -184,9 +177,137 @@ const initDb = async () => {
 
 initDb().catch(console.error);
 
+// Helper to sync to Google Sheets after any change
+const syncToSheetsInternal = async () => {
+  if (!googleTokens) return;
+  const { sheetId } = getGoogleConfig();
+  if (!sheetId) return;
+
+  try {
+    const client = getOAuth2Client();
+    client.setCredentials(googleTokens);
+    const sheets = google.sheets({ version: "v4", auth: client });
+
+    let tasks = [];
+    let logs = [];
+    
+    if (db) {
+      if (isPostgres) {
+        const taskResult = await db.query("SELECT * FROM tasks ORDER BY createdAt DESC");
+        tasks = taskResult.rows;
+        const logResult = await db.query("SELECT * FROM activity_logs ORDER BY timestamp DESC");
+        logs = logResult.rows;
+      } else {
+        tasks = db.prepare("SELECT * FROM tasks ORDER BY createdAt DESC").all();
+        logs = db.prepare("SELECT * FROM activity_logs ORDER BY timestamp DESC").all();
+      }
+    } else if (googleTokens) {
+      // If no DB, we already have the latest in Sheets or we just updated it
+      // For now, if no DB, we skip the "fetch from DB then write to Sheets" part
+      // and assume the caller handled the Sheets update or we'll fetch from Sheets next time
+      return;
+    }
+
+    const taskValues = [
+      ["ID", "Name", "Unit", "Responsible", "Frequency", "Type", "Priority", "Planned Date", "Actual Date", "Status", "Update ขั้นตอนการดำเนินงานอย่างละเอียดว่าถึงขึ้นตอนใด", "Remarks", "Source Task ID", "Source Task Name", "Created At"],
+      ...tasks.map((t: any) => [
+        t.id, t.name, t.unit, t.responsible, t.frequency, t.type, t.priority, t.plannedDate, t.actualDate, t.status, t.detailedSteps, t.remarks, t.sourceTaskId, t.sourceTaskName, t.createdAt
+      ])
+    ];
+
+    const logValues = [
+      ["Timestamp", "Employee ID", "Action", "Details"],
+      ...logs.map((l: any) => [
+        l.timestamp, l.employeeId, l.action, l.details
+      ])
+    ];
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: "Sheet1!A1",
+      valueInputOption: "RAW",
+      requestBody: { values: taskValues }
+    });
+
+    // Check if Sheet2 exists, if not create it
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      const sheet2 = spreadsheet.data.sheets?.find(s => s.properties?.title === "Sheet2");
+      
+      if (!sheet2) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: { title: "Sheet2" }
+              }
+            }]
+          }
+        });
+      }
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: "Sheet2!A1",
+        valueInputOption: "RAW",
+        requestBody: { values: logValues }
+      });
+    } catch (e: any) {
+      console.error("Sheet2 sync error:", e.message);
+    }
+  } catch (err: any) {
+    console.error("Auto-sync to Sheets failed:", err.message);
+  }
+};
+
 // API Routes
 app.get("/api/tasks", async (req, res) => {
   try {
+    // Try reading from Google Sheets first if connected
+    if (googleTokens) {
+      const { sheetId } = getGoogleConfig();
+      const client = getOAuth2Client();
+      client.setCredentials(googleTokens);
+      const sheets = google.sheets({ version: "v4", auth: client });
+      
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: "Sheet1!A2:O",
+        });
+        
+        const rows = response.data.values;
+        if (rows) {
+          const tasks = rows.map(row => ({
+            id: row[0] || "",
+            name: row[1] || "",
+            unit: row[2] || "",
+            responsible: row[3] || "",
+            frequency: row[4] || "",
+            type: row[5] || "",
+            priority: row[6] || "",
+            plannedDate: row[7] || "",
+            actualDate: row[8] || "",
+            status: row[9] || "",
+            detailedSteps: row[10] || "",
+            remarks: row[11] || "",
+            sourceTaskId: row[12] || "",
+            sourceTaskName: row[13] || "",
+            createdAt: row[14] || ""
+          }));
+          return res.json(tasks);
+        }
+      } catch (sheetErr: any) {
+        console.error("Google Sheets Read Error (falling back to DB):", sheetErr.message);
+      }
+    }
+
+    // Fallback to local DB
+    if (!db) {
+      return res.json([]);
+    }
+
     let tasks;
     if (isPostgres) {
       const result = await db.query("SELECT * FROM tasks ORDER BY createdAt DESC");
@@ -223,36 +344,50 @@ app.post("/api/tasks", async (req, res) => {
   };
 
   try {
-    if (isPostgres) {
-      const query = `
-        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-        ON CONFLICT (id) DO UPDATE SET
-          groupId = EXCLUDED.groupId,
-          name = EXCLUDED.name,
-          unit = EXCLUDED.unit,
-          responsible = EXCLUDED.responsible,
-          frequency = EXCLUDED.frequency,
-          type = EXCLUDED.type,
-          priority = EXCLUDED.priority,
-          plannedDate = EXCLUDED.plannedDate,
-          actualDate = EXCLUDED.actualDate,
-          delayDays = EXCLUDED.delayDays,
-          status = EXCLUDED.status,
-          detailedSteps = EXCLUDED.detailedSteps,
-          remarks = EXCLUDED.remarks,
-          sourceTaskId = EXCLUDED.sourceTaskId,
-          sourceTaskName = EXCLUDED.sourceTaskName,
-          createdAt = EXCLUDED.createdAt
-      `;
-      await db.query(query, Object.values(taskData));
-    } else {
-      const insert = db.prepare(`
-        INSERT OR REPLACE INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
-      `);
-      insert.run(taskData);
+    if (db) {
+      if (isPostgres) {
+        const query = `
+          INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          ON CONFLICT (id) DO UPDATE SET
+            groupId = EXCLUDED.groupId,
+            name = EXCLUDED.name,
+            unit = EXCLUDED.unit,
+            responsible = EXCLUDED.responsible,
+            frequency = EXCLUDED.frequency,
+            type = EXCLUDED.type,
+            priority = EXCLUDED.priority,
+            plannedDate = EXCLUDED.plannedDate,
+            actualDate = EXCLUDED.actualDate,
+            delayDays = EXCLUDED.delayDays,
+            status = EXCLUDED.status,
+            detailedSteps = EXCLUDED.detailedSteps,
+            remarks = EXCLUDED.remarks,
+            sourceTaskId = EXCLUDED.sourceTaskId,
+            sourceTaskName = EXCLUDED.sourceTaskName,
+            createdAt = EXCLUDED.createdAt
+        `;
+        await db.query(query, Object.values(taskData));
+      } else {
+        const insert = db.prepare(`
+          INSERT OR REPLACE INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+          VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
+        `);
+        insert.run(taskData);
+      }
     }
+
+    // If Google is connected, we can also write directly to Sheets for immediate update
+    if (googleTokens) {
+      const { sheetId } = getGoogleConfig();
+      const client = getOAuth2Client();
+      client.setCredentials(googleTokens);
+      const sheets = google.sheets({ version: "v4", auth: client });
+      
+      // Fetch all tasks and sync (simplest way to ensure order and headers)
+      await syncToSheetsInternal();
+    }
+    
     res.json({ success: true });
   } catch (error: any) {
     console.error("Save Task Error:", error);
@@ -268,74 +403,78 @@ app.post("/api/tasks/batch", async (req, res) => {
 
   try {
     const now = new Date().toISOString();
-    if (isPostgres) {
-      const client = await db.connect();
-      try {
-        await client.query('BEGIN');
-        const query = `
+    if (db) {
+      if (isPostgres) {
+        const client = await db.connect();
+        try {
+          await client.query('BEGIN');
+          const query = `
+            INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          `;
+          for (const task of tasks) {
+            const taskData = [
+              task.id,
+              task.groupId || null,
+              task.name || "",
+              task.unit || "",
+              task.responsible || "",
+              task.frequency || "",
+              task.type || "งาน routine",
+              task.priority || "3 ปกติ",
+              task.plannedDate || "",
+              task.actualDate || "",
+              task.delayDays || 0,
+              task.status || "รอดำเนินการ",
+              task.detailedSteps || "",
+              task.remarks || "",
+              task.sourceTaskId || null,
+              task.sourceTaskName || null,
+              task.createdAt || now
+            ];
+            await client.query(query, taskData);
+          }
+          await client.query('COMMIT');
+        } catch (e) {
+          await client.query('ROLLBACK');
+          throw e;
+        } finally {
+          client.release();
+        }
+      } else {
+        const insert = db.prepare(`
           INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-        `;
-        for (const task of tasks) {
-          const taskData = [
-            task.id,
-            task.groupId || null,
-            task.name || "",
-            task.unit || "",
-            task.responsible || "",
-            task.frequency || "",
-            task.type || "งาน routine",
-            task.priority || "3 ปกติ",
-            task.plannedDate || "",
-            task.actualDate || "",
-            task.delayDays || 0,
-            task.status || "รอดำเนินการ",
-            task.detailedSteps || "",
-            task.remarks || "",
-            task.sourceTaskId || null,
-            task.sourceTaskName || null,
-            task.createdAt || now
-          ];
-          await client.query(query, taskData);
-        }
-        await client.query('COMMIT');
-      } catch (e) {
-        await client.query('ROLLBACK');
-        throw e;
-      } finally {
-        client.release();
+          VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
+        `);
+        const transaction = db.transaction((taskList) => {
+          for (const task of taskList) {
+            insert.run({
+              ...task,
+              id: task.id,
+              groupId: task.groupId || null,
+              name: task.name || "",
+              unit: task.unit || "",
+              responsible: task.responsible || "",
+              frequency: task.frequency || "",
+              type: task.type || "งาน routine",
+              priority: task.priority || "3 ปกติ",
+              plannedDate: task.plannedDate || "",
+              actualDate: task.actualDate || "",
+              delayDays: task.delayDays || 0,
+              status: task.status || "รอดำเนินการ",
+              detailedSteps: task.detailedSteps || "",
+              remarks: task.remarks || "",
+              sourceTaskId: task.sourceTaskId || null,
+              sourceTaskName: task.sourceTaskName || null,
+              createdAt: task.createdAt || now
+            });
+          }
+        });
+        transaction(tasks);
       }
-    } else {
-      const insert = db.prepare(`
-        INSERT INTO tasks (id, groupId, name, unit, responsible, frequency, type, priority, plannedDate, actualDate, delayDays, status, detailedSteps, remarks, sourceTaskId, sourceTaskName, createdAt)
-        VALUES (@id, @groupId, @name, @unit, @responsible, @frequency, @type, @priority, @plannedDate, @actualDate, @delayDays, @status, @detailedSteps, @remarks, @sourceTaskId, @sourceTaskName, @createdAt)
-      `);
-      const transaction = db.transaction((taskList) => {
-        for (const task of taskList) {
-          insert.run({
-            ...task,
-            id: task.id,
-            groupId: task.groupId || null,
-            name: task.name || "",
-            unit: task.unit || "",
-            responsible: task.responsible || "",
-            frequency: task.frequency || "",
-            type: task.type || "งาน routine",
-            priority: task.priority || "3 ปกติ",
-            plannedDate: task.plannedDate || "",
-            actualDate: task.actualDate || "",
-            delayDays: task.delayDays || 0,
-            status: task.status || "รอดำเนินการ",
-            detailedSteps: task.detailedSteps || "",
-            remarks: task.remarks || "",
-            sourceTaskId: task.sourceTaskId || null,
-            sourceTaskName: task.sourceTaskName || null,
-            createdAt: task.createdAt || now
-          });
-        }
-      });
-      transaction(tasks);
     }
+    
+    syncToSheetsInternal();
     res.json({ success: true });
   } catch (error: any) {
     console.error("Batch Save Error:", error);
@@ -346,11 +485,15 @@ app.post("/api/tasks/batch", async (req, res) => {
 app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    if (isPostgres) {
-      await db.query("DELETE FROM tasks WHERE id = $1", [id]);
-    } else {
-      db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+    if (db) {
+      if (isPostgres) {
+        await db.query("DELETE FROM tasks WHERE id = $1", [id]);
+      } else {
+        db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+      }
     }
+    
+    syncToSheetsInternal();
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -360,16 +503,20 @@ app.delete("/api/tasks/:id", async (req, res) => {
 app.post("/api/logs", async (req, res) => {
   const { employeeId, action, details, timestamp } = req.body;
   try {
-    if (isPostgres) {
-      await db.query(
-        "INSERT INTO activity_logs (employeeId, action, details, timestamp) VALUES ($1, $2, $3, $4)",
-        [employeeId, action, details, timestamp]
-      );
-    } else {
-      db.prepare(
-        "INSERT INTO activity_logs (employeeId, action, details, timestamp) VALUES (?, ?, ?, ?)"
-      ).run(employeeId, action, details, timestamp);
+    if (db) {
+      if (isPostgres) {
+        await db.query(
+          "INSERT INTO activity_logs (employeeId, action, details, timestamp) VALUES ($1, $2, $3, $4)",
+          [employeeId, action, details, timestamp]
+        );
+      } else {
+        db.prepare(
+          "INSERT INTO activity_logs (employeeId, action, details, timestamp) VALUES (?, ?, ?, ?)"
+        ).run(employeeId, action, details, timestamp);
+      }
     }
+    
+    syncToSheetsInternal();
     res.json({ success: true });
   } catch (error: any) {
     console.error("Log Error:", error);
@@ -462,7 +609,7 @@ app.post("/api/google/sheets/sync", async (req, res) => {
     return res.status(401).json({ error: "Google account not connected" });
   }
 
-  const sheetId = process.env.GOOGLE_SHEET_ID;
+  const { sheetId } = getGoogleConfig();
   if (!sheetId) {
     return res.status(400).json({ error: "กรุณาตั้งค่า GOOGLE_SHEET_ID ใน Environment Variables" });
   }
