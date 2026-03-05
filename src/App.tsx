@@ -157,7 +157,18 @@ export default function App() {
       const initApp = async () => {
         await logActivity("LOGIN", `เข้าสู่ระบบด้วยรหัสพนักงาน ${user}`);
         await fetchTasks();
-        // Removed auto-connect Google as per user request
+        
+        // Auto-connect Google if configured but not connected
+        const status = await checkGoogleStatus();
+        if (status.configured && !status.connected) {
+          try {
+            const { data } = await axios.get("/api/auth/google/url");
+            // Use window.location.href instead of window.open to avoid popup blockers
+            window.location.href = data.url;
+          } catch (err) {
+            console.error("Auto-connect failed:", err);
+          }
+        }
       };
       initApp();
     }
@@ -325,7 +336,7 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            {isGoogleConnected ? (
+            {isGoogleConnected && (
               <button 
                 onClick={handleSyncToSheets}
                 disabled={loading}
@@ -333,14 +344,6 @@ export default function App() {
               >
                 <FileSpreadsheet className="w-4 h-4" />
                 ซิงค์ Google Sheets
-              </button>
-            ) : (
-              <button 
-                onClick={handleConnectGoogle}
-                className="bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                เชื่อมต่อ Google Sheets
               </button>
             )}
             {activeTab === "tasks" && (

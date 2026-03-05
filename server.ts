@@ -59,6 +59,7 @@ const initializeApp = async () => {
     try {
       await startDb();
       await initDb();
+      await loadTokensFromDb();
       console.log("Initialization complete");
     } catch (err) {
       console.error("Initialization failed:", err);
@@ -104,8 +105,51 @@ const getOAuth2Client = () => {
   return new google.auth.OAuth2(clientId!, clientSecret!, redirectUri!);
 };
 
-// In-memory token storage (for demo purposes)
+// In-memory token storage (loaded from DB on startup)
 let googleTokens: any = null;
+
+// Helper to load tokens from DB
+const loadTokensFromDb = async () => {
+  if (!db) return;
+  try {
+    let result;
+    if (isPostgres) {
+      result = await db.query("SELECT value FROM settings WHERE key = $1", ["google_tokens"]);
+      if (result.rows.length > 0) {
+        googleTokens = JSON.parse(result.rows[0].value);
+        console.log("Google tokens loaded from PostgreSQL");
+      }
+    } else {
+      result = db.prepare("SELECT value FROM settings WHERE key = ?").get("google_tokens");
+      if (result) {
+        googleTokens = JSON.parse(result.value);
+        console.log("Google tokens loaded from SQLite");
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load tokens from DB:", err);
+  }
+};
+
+// Helper to save tokens to DB
+const saveTokensToDb = async (tokens: any) => {
+  if (!db) return;
+  try {
+    const tokensStr = JSON.stringify(tokens);
+    if (isPostgres) {
+      await db.query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        ["google_tokens", tokensStr]
+      );
+    } else {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("google_tokens", tokensStr);
+    }
+    googleTokens = tokens;
+    console.log("Google tokens saved to DB");
+  } catch (err) {
+    console.error("Failed to save tokens to DB:", err);
+  }
+};
 
 app.use(express.json());
 
@@ -153,6 +197,12 @@ const initDb = async () => {
         timestamp TEXT
       )
     `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
     // Migration: Add detailedSteps if it doesn't exist
     try {
       await db.query("ALTER TABLE tasks ADD COLUMN detailedSteps TEXT");
@@ -198,6 +248,12 @@ const initDb = async () => {
         action TEXT,
         details TEXT,
         timestamp TEXT
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
       )
     `);
     // Migration: Add detailedSteps if it doesn't exist
@@ -605,7 +661,7 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const client = getOAuth2Client();
     const { tokens } = await client.getToken(code as string);
-    googleTokens = tokens;
+    await saveTokensToDb(tokens);
     
     res.send(`
       <!DOCTYPE html>
@@ -626,13 +682,15 @@ app.get("/auth/google/callback", async (req, res) => {
             <button onclick="closeWindow()" style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; background: #166534; color: white; border: none; border-radius: 0.5rem;">ปิดหน้าต่างนี้ทันที</button>
           </div>
           <script>
-            function closeWindow() {
+            function handleSuccess() {
               if (window.opener) {
                 window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
-                window.close();
+                setTimeout(() => window.close(), 1000);
+              } else {
+                window.location.href = '/';
               }
             }
-            setTimeout(closeWindow, 2000);
+            setTimeout(handleSuccess, 1500);
           </script>
         </body>
       </html>
