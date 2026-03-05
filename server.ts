@@ -2,7 +2,6 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import path from "path";
-import Database from "better-sqlite3";
 import pg from "pg";
 import { google } from "googleapis";
 
@@ -10,6 +9,46 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Database Setup
+let db: any;
+let isPostgres = false;
+
+// Initialize Database Connection
+const startDb = async () => {
+  if (process.env.DATABASE_URL) {
+    try {
+      const pool = new pg.Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
+      });
+      db = pool;
+      isPostgres = true;
+      console.log("Using PostgreSQL Database");
+    } catch (err: any) {
+      console.error("PostgreSQL Connection Error:", err.message);
+    }
+  } else if (!process.env.VERCEL) {
+    try {
+      // Dynamic import for better-sqlite3 to avoid issues on Vercel
+      const Database = (await import("better-sqlite3")).default;
+      db = new Database("tasks.db");
+      console.log("Using SQLite Database (Local fallback)");
+    } catch (err: any) {
+      console.error("SQLite Initialization Error:", err.message);
+    }
+  } else {
+    console.log("Running on Vercel without DATABASE_URL. Using Google Sheets as primary storage.");
+  }
+};
+
+// Call startDb and then initDb sequentially
+const initializeApp = async () => {
+  await startDb();
+  await initDb();
+};
+
+initializeApp().catch(console.error);
 
 // Google OAuth Setup Helper
 const getGoogleConfig = () => {
@@ -45,33 +84,6 @@ const getOAuth2Client = () => {
 
 // In-memory token storage (for demo purposes)
 let googleTokens: any = null;
-
-// Database Setup
-let db: any;
-let isPostgres = false;
-
-if (process.env.DATABASE_URL) {
-  try {
-    const pool = new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
-    });
-    db = pool;
-    isPostgres = true;
-    console.log("Using PostgreSQL Database");
-  } catch (err: any) {
-    console.error("PostgreSQL Connection Error:", err.message);
-  }
-} else if (!process.env.VERCEL) {
-  try {
-    db = new Database("tasks.db");
-    console.log("Using SQLite Database (Local fallback)");
-  } catch (err: any) {
-    console.error("SQLite Initialization Error:", err.message);
-  }
-} else {
-  console.log("Running on Vercel without DATABASE_URL. Using Google Sheets as primary storage.");
-}
 
 app.use(express.json());
 
@@ -174,8 +186,6 @@ const initDb = async () => {
     } catch (e) {}
   }
 };
-
-initDb().catch(console.error);
 
 // Helper to sync to Google Sheets after any change
 const syncToSheetsInternal = async () => {
