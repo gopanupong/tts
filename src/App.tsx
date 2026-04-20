@@ -10,7 +10,8 @@ import {
   ChevronRight,
   Search,
   Filter,
-  AlertCircle
+  AlertCircle,
+  Bell
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -26,7 +27,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "tasks">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "tasks" | "overdue">("dashboard");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +51,17 @@ export default function App() {
       console.error("Failed to log activity:", err);
     }
   };
+
+  const overdueTasks = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return tasks.filter(t => {
+      if (t.actualDate || !t.plannedDate) return false;
+      const [year, month, day] = t.plannedDate.split('-').map(Number);
+      const plannedDate = new Date(year, month - 1, day);
+      return plannedDate < today;
+    });
+  }, [tasks]);
 
   const handleLogin = async (employeeId: string) => {
     setUser(employeeId);
@@ -248,6 +260,7 @@ export default function App() {
       const message = err.response?.data?.error || err.message || "Failed to save task";
       setError(message);
       console.error("Save Error:", err);
+      throw err; // Re-throw to let TaskForm handle loading state
     } finally {
       setLoading(false);
     }
@@ -311,6 +324,21 @@ export default function App() {
               <ListTodo size={20} />
               <span className="font-medium">รายการงาน</span>
             </button>
+            <button 
+              onClick={() => setActiveTab("overdue")}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
+                activeTab === "overdue" ? "bg-red-600 text-white shadow-lg" : "text-red-600/60 hover:bg-red-50"
+              )}
+            >
+              <AlertCircle size={20} />
+              <span className="font-medium">งานเกินกำหนด</span>
+              {overdueTasks.length > 0 && (
+                <span className="ml-auto bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full">
+                  {overdueTasks.length}
+                </span>
+              )}
+            </button>
           </nav>
         </div>
 
@@ -340,23 +368,30 @@ export default function App() {
         <header className="flex items-center justify-between mb-8">
           <div>
             <h2 className="text-3xl font-bold text-purple-900">
-              {activeTab === "dashboard" ? "ภาพรวมการดำเนินงาน" : "จัดการรายการงาน"}
+              {activeTab === "dashboard" ? "ภาพรวมการดำเนินงาน" : 
+               activeTab === "overdue" ? "งานที่เกินกำหนดส่ง" : "จัดการรายการงาน"}
             </h2>
             <p className="text-purple-500">
-              {activeTab === "dashboard" ? "สรุปสถานะงานของทุกหน่วยงาน" : "เพิ่ม แก้ไข และติดตามสถานะงานรายหน่วย"}
+              {activeTab === "dashboard" ? "สรุปสถานะงานของทุกหน่วยงาน" : 
+               activeTab === "overdue" ? "รายการที่ยังไม่ดำเนินการตามแผนงาน" : "เพิ่ม แก้ไข และติดตามสถานะงานรายหน่วย"}
             </p>
           </div>
           
           <div className="flex items-center gap-4">
-            {isGoogleConfigured && !isGoogleConnected && (
-              <button 
-                onClick={() => handleConnectGoogle(false)}
-                className="bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                เชื่อมต่อ Google Sheets
-              </button>
-            )}
+            {/* Notification Bell */}
+            <button
+              onClick={() => setActiveTab("overdue")}
+              className="relative p-3 bg-white border border-purple-100 rounded-2xl text-purple-600 hover:bg-purple-50 transition-all shadow-sm active:scale-95"
+              title="รายการแจ้งเตือนงานเกินกำหนด"
+            >
+              <Bell size={20} />
+              {overdueTasks.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white animate-pulse">
+                  {overdueTasks.length}
+                </span>
+              )}
+            </button>
+
             {isGoogleConnected && (
               <button 
                 onClick={handleSyncToSheets}
@@ -412,6 +447,42 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
             >
               <Dashboard tasks={tasks} />
+            </motion.div>
+          ) : activeTab === "overdue" ? (
+            <motion.div
+              key="overdue"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <div className="bg-red-50 p-6 rounded-[32px] border border-red-100 mb-6 flex items-center gap-4">
+                <div className="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200">
+                  <AlertCircle size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-red-900">งานเกินกำหนดส่ง</h3>
+                  <p className="text-red-600">มีรายการงานทั้งหมด {overdueTasks.length} รายการที่ยังไม่เสร็จสิ้นตามแผนงาน</p>
+                </div>
+              </div>
+              <TaskTable 
+                tasks={overdueTasks} 
+                onEdit={handleEditTask}
+                onHandover={handleHandover}
+                onDelete={async (id) => {
+                  const taskToDelete = tasks.find(t => t.id === id);
+                  if (!window.confirm("คุณแน่ใจหรือไม่ว่าต้องการลบงานนี้?")) return;
+                  setLoading(true);
+                  try {
+                    await axios.delete(`/api/tasks/${id}`);
+                    logActivity("DELETE", `ลบงาน: ${taskToDelete?.name || id} (${taskToDelete?.unit || "ไม่ระบุ"})`);
+                    await fetchTasks();
+                  } catch (err) {
+                    setError("Failed to delete task");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              />
             </motion.div>
           ) : (
             <motion.div

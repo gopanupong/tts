@@ -138,6 +138,9 @@ const loadTokensFromDb = async () => {
 
 // Helper to save tokens to DB
 const saveTokensToDb = async (tokens: any) => {
+  googleTokens = tokens;
+  console.log("Google tokens updated in memory");
+  
   if (!db) return;
   try {
     const tokensStr = JSON.stringify(tokens);
@@ -149,7 +152,6 @@ const saveTokensToDb = async (tokens: any) => {
     } else {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("google_tokens", tokensStr);
     }
-    googleTokens = tokens;
     console.log("Google tokens saved to DB");
   } catch (err) {
     console.error("Failed to save tokens to DB:", err);
@@ -388,23 +390,25 @@ app.get("/api/tasks", async (req, res) => {
         
         const rows = response.data.values;
         if (rows) {
-          const tasks = rows.map(row => ({
-            id: row[0] || "",
-            name: row[1] || "",
-            unit: row[2] || "",
-            responsible: row[3] || "",
-            frequency: row[4] || "",
-            type: row[5] || "",
-            priority: row[6] || "",
-            plannedDate: row[7] || "",
-            actualDate: row[8] || "",
-            status: row[9] || "",
-            detailedSteps: row[10] || "",
-            remarks: row[11] || "",
-            sourceTaskId: row[12] || "",
-            sourceTaskName: row[13] || "",
-            createdAt: row[14] || ""
-          }));
+          const tasks = rows
+            .filter(row => row[0]) // Filter out empty rows
+            .map(row => ({
+              id: row[0] || "",
+              name: row[1] || "",
+              unit: row[2] || "",
+              responsible: row[3] || "",
+              frequency: row[4] || "",
+              type: row[5] || "",
+              priority: row[6] || "",
+              plannedDate: row[7] || "",
+              actualDate: row[8] || "",
+              status: row[9] || "",
+              detailedSteps: row[10] || "",
+              remarks: row[11] || "",
+              sourceTaskId: row[12] || "",
+              sourceTaskName: row[13] || "",
+              createdAt: row[14] || ""
+            }));
           return res.json(tasks);
         }
       } catch (sheetErr: any) {
@@ -518,7 +522,7 @@ app.post("/api/tasks", async (req, res) => {
           taskData.sourceTaskName, taskData.createdAt
         ];
         
-        const existingIndex = rows.findIndex(r => r[0] === taskData.id);
+        const existingIndex = rows.findIndex(r => r[0] && String(r[0]).trim() === String(taskData.id).trim());
         if (existingIndex >= 0) {
           rows[existingIndex] = taskArray;
         } else {
@@ -657,7 +661,7 @@ app.post("/api/tasks/batch", async (req, res) => {
             task.detailedSteps || "", task.remarks || "", task.sourceTaskId || null, 
             task.sourceTaskName || null, task.createdAt || now
           ];
-          const existingIndex = rows.findIndex(r => r[0] === task.id);
+          const existingIndex = rows.findIndex(r => r[0] && String(r[0]).trim() === String(task.id).trim());
           if (existingIndex >= 0) {
             rows[existingIndex] = taskArray;
           } else {
@@ -720,7 +724,7 @@ app.delete("/api/tasks/:id", async (req, res) => {
           range: "Sheet1!A2:O",
         });
         let rows = response.data.values || [];
-        const filteredRows = rows.filter(r => r[0] !== id);
+        const filteredRows = rows.filter(r => r[0] && String(r[0]).trim() !== String(id).trim());
         
         if (rows.length !== filteredRows.length) {
           const values = [

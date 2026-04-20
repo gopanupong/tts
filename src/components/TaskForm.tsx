@@ -17,6 +17,7 @@ interface TaskFormProps {
 
 export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskFormProps) {
   const [selectedUnits, setSelectedUnits] = useState<string[]>([UNITS[0]]);
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState<Partial<Task>>({
     name: "",
     unit: UNITS[0],
@@ -33,6 +34,9 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
   });
 
   useEffect(() => {
+    if (isOpen) {
+      setIsSaving(false);
+    }
     if (editingTask) {
       setFormData(editingTask);
       setSelectedUnits([editingTask.unit]);
@@ -84,27 +88,35 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
     setFormData({ ...newFormData, status, delayDays: delay });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     
+    setIsSaving(true);
     const unitsToAssign = selectedUnits;
     
-    if (!editingTask?.id && unitsToAssign.length > 1) {
-      const groupId = `G-${Date.now()}`;
-      const tasks = unitsToAssign.map(unit => ({
-        ...formData,
-        id: `T-${unit}-${Date.now()}`,
-        groupId,
-        unit,
-        status: "รอดำเนินการ"
-      }));
-      onSave(tasks as any);
-    } else {
-      // If only one unit selected or editing
-      onSave({
-        ...formData,
-        unit: editingTask?.id ? formData.unit : unitsToAssign[0]
-      });
+    try {
+      if (!editingTask?.id && unitsToAssign.length > 1) {
+        const groupId = `G-${Date.now()}`;
+        const tasks = unitsToAssign.map(unit => ({
+          ...formData,
+          id: `T-${unit}-${Date.now()}`,
+          groupId,
+          unit,
+          status: "รอดำเนินการ"
+        }));
+        await onSave(tasks as any);
+      } else {
+        // If only one unit selected or editing
+        await onSave({
+          ...formData,
+          id: formData.id, // Ensure ID is passed if editing
+          unit: editingTask?.id ? formData.unit : unitsToAssign[0]
+        });
+      }
+    } catch (err) {
+      console.error("Submit error:", err);
+      setIsSaving(false);
     }
   };
 
@@ -336,9 +348,14 @@ export default function TaskForm({ isOpen, onClose, onSave, editingTask }: TaskF
               </button>
               <button 
                 onClick={handleSubmit}
-                className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20"
+                disabled={isSaving}
+                className={cn(
+                  "px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 flex items-center gap-2",
+                  isSaving && "opacity-70 cursor-not-allowed"
+                )}
               >
-                {editingTask?.id ? "บันทึกการแก้ไข" : "ยืนยันการส่งต่อ / บันทึก"}
+                {isSaving && <Clock className="animate-spin w-5 h-5" />}
+                {editingTask?.id ? (isSaving ? "กำลังบันทึก..." : "บันทึกการแก้ไข") : (isSaving ? "กำลังบันทึก..." : "ยืนยันการส่งต่อ / บันทึก")}
               </button>
             </div>
           </motion.div>
